@@ -107,6 +107,11 @@ namespace details {
                     "signed bit-field of width 1 is not supported",
                     member);
             }
+            if (current_bit_offset == 0) {
+                const std::size_t natural_align = alignment_of(type_of(member));
+                const std::size_t effective_align = std::ranges::min(required_align, natural_align);
+                current_offset = align_to(current_offset, effective_align);
+            }
             if (has_identifier(member)) {
                 offsets.push_back({ .offset = current_offset, .bit_offset = current_bit_offset });
                 if (group_begin == nullptr) {
