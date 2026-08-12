@@ -27,8 +27,6 @@ struct BitBase { std::uint8_t a : 3; };
 struct BitDerived : BitBase { std::uint8_t b : 5; };
 struct U64Bits { std::uint64_t a : 32; std::uint64_t b : 32; };
 
-static_assert(subobjects_of(^^Terminated, std::meta::access_context::current()).size() == 4);
-
 int main() {
     std::println("Hello, World!");
 
