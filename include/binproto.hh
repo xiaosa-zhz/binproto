@@ -397,9 +397,15 @@ namespace details {
                     read<Endian, Packed>(value.[:member:], raw.subspan(offset.offset, member_size));
                 }
             }
+        } else if constexpr (is_bounded_array_type(type)) {
+            static constexpr auto elem_type = remove_extent(type);
+            static constexpr auto elem_size = layout_of<typename [:elem_type:], Endian, Packed>.total_size;
+            template for (constexpr auto I : std::views::iota(0uz, extent(type))) {
+                read<Endian, Packed>(value[I], raw.subspan(I * elem_size, elem_size));
+            }
         } else {
             static_assert(is_arithmetic_type(type) || is_floating_point_type(type) || is_enum_type(type),
-                          "Only arithmetic, floating-point, enum and class types are supported");
+                          "only arithmetic, floating-point, enum, array, and class types are supported");
             value_rep_type<T> buffer{};
             std::ranges::copy_n(raw.data(), layout.total_size, buffer.data());
             if constexpr (Endian != std::endian::native) {
@@ -442,9 +448,15 @@ namespace details {
                     write<Endian, Packed>(value.[:member:], raw.subspan(offset.offset, member_size));
                 }
             }
+        } else if constexpr (is_bounded_array_type(type)) {
+            static constexpr auto elem_type = remove_extent(type);
+            static constexpr auto elem_size = layout_of<typename [:elem_type:], Endian, Packed>.total_size;
+            template for (constexpr auto I : std::views::iota(0uz, extent(type))) {
+                write<Endian, Packed>(value[I], raw.subspan(I * elem_size, elem_size));
+            }
         } else {
             static_assert(is_arithmetic_type(type) || is_floating_point_type(type) || is_enum_type(type),
-                          "Only arithmetic, floating-point, enum and class types are supported");
+                          "only arithmetic, floating-point, enum, array, and class types are supported");
             auto buffer = [&value] {
                 if constexpr (Endian != std::endian::native) {
                     if constexpr (is_floating_point_type(type)) {
