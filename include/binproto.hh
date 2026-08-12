@@ -46,18 +46,30 @@ namespace details {
                                                          std::endian endian,
                                                          std::size_t required_align);
 
+    consteval std::vector<std::meta::info> members_for_layout(std::meta::info type) {
+        std::vector<std::meta::info> result = bases_of(type, std::meta::access_context::unprivileged());
+        for (auto member : members_of(type, std::meta::access_context::unprivileged())) {
+            if (!is_static_member(member)) {
+                if (is_nonstatic_data_member(member) || is_bit_field(member)) {
+                    result.push_back(member);
+                }
+            }
+        }
+        return result;
+    }
+
     consteval auto generate_class_layout(std::meta::info type,
                                          std::endian endian,
                                          std::size_t required_align) {
-        const auto data_members = std::define_static_array(
-            subobjects_of(type, std::meta::access_context::current()));
+        const auto layout_members = members_for_layout(type);
         packed_layout result;
-        std::vector<member_offset_info> offsets(data_members.size());
+        std::vector<member_offset_info> offsets;
+        offsets.reserve(layout_members.size());
         std::size_t current_offset = 0;
         std::uint8_t current_bit_offset = 0;
         member_offset_info* group_begin = nullptr;
         member_offset_info* group_end = nullptr;
-        auto accumulate_bitfield_group = [&](std::size_t i, std::meta::info member = {}) {
+        auto accumulate_bitfield_group = [&](std::meta::info member = {}) {
             auto finalize_group = [&]() {
                 if (group_begin != nullptr) {
                     for (member_offset_info& info : std::span(group_begin, group_end)) {
@@ -78,7 +90,6 @@ namespace details {
             const std::size_t bit_width = bit_size_of(member);
             if (bit_width == 0) {
                 finalize_group();
-                offsets[i] = member_offset_info{ .offset = current_offset };
                 return;
             }
             if (bit_width >= std::numeric_limits<std::size_t>::digits) {
@@ -96,37 +107,35 @@ namespace details {
                     "signed bit-field of width 1 is not supported",
                     member);
             }
-            if (group_begin == nullptr) {
-                group_begin = offsets.data() + i;
+            if (has_identifier(member)) {
+                offsets.push_back({ .offset = current_offset, .bit_offset = current_bit_offset });
+                if (group_begin == nullptr) {
+                    group_begin = std::addressof(offsets.back());
+                }
+                group_end = std::addressof(offsets.back()) + 1;
             }
-            group_end = offsets.data() + (i + 1);
-            offsets[i] = member_offset_info{
-                .offset = current_offset,
-                .bit_offset = current_bit_offset,
-            };
             current_bit_offset += bit_width;
         };
-        for (std::size_t i : std::views::iota(0uz, data_members.size())) {
-            const auto member = data_members[i];
+        for (const auto member : layout_members) {
             if (is_const_type(type_of(member))) {
                 throw std::meta::exception(
                     "const-qualified member is not supported",
                     member);
             }
             if (is_bit_field(member)) {
-                accumulate_bitfield_group(i, member);
+                accumulate_bitfield_group(member);
                 continue;
             }
-            accumulate_bitfield_group(i);
+            accumulate_bitfield_group();
             // generate normal member offset info
             const std::size_t natural_align = alignment_of(member);
             const std::size_t effective_align = std::ranges::min(required_align, natural_align);
             current_offset = align_to(current_offset, effective_align);
-            offsets[i].offset = current_offset;
+            offsets.push_back({ .offset = current_offset });
             auto subobj_layout = generate_member_offset_table(type_of(member), endian, required_align);
             current_offset += subobj_layout.total_size;
         }
-        accumulate_bitfield_group(data_members.size());
+        accumulate_bitfield_group();
         const std::size_t struct_align = std::ranges::min(required_align, alignment_of(type));
         result.offsets = std::define_static_array(offsets);
         result.total_size = align_to(current_offset, struct_align);
@@ -174,9 +183,7 @@ namespace details {
             throw std::meta::exception("member is not a non-static data member", mem);
         }
         const auto layout = generate_member_offset_table(type, endian, packed);
-        const auto data_members = std::define_static_array(
-            subobjects_of(type, std::meta::access_context::current())
-        );
+        const auto data_members = subobjects_of(type, std::meta::access_context::unprivileged());
         // test direct members first
         for (auto data_member : data_members) {
             if (data_member == mem) {
@@ -184,10 +191,7 @@ namespace details {
             }
         }
         // maybe in base classes
-        const auto bases = std::define_static_array(
-            bases_of(type, std::meta::access_context::current())
-        );
-        for (const auto base : bases) {
+        for (const auto base : bases_of(type, std::meta::access_context::unprivileged())) {
             const auto base_type = type_of(base);
             const bool accessible = extract<bool>(
                 substitute(^^member_accessible, { base_type, reflect_constant(mem) }));
@@ -205,9 +209,7 @@ namespace details {
                                                     std::size_t packed) {
         const auto parent = parent_of(member);
         const auto member_index = [parent, member] {
-            const auto data_members = std::define_static_array(
-                subobjects_of(parent, std::meta::access_context::current())
-            );
+            const auto data_members = subobjects_of(parent, std::meta::access_context::unprivileged());
             return std::ranges::find(data_members, member) - data_members.begin();
         }();
         const auto layout = generate_member_offset_table(parent, endian, packed);
@@ -246,9 +248,7 @@ namespace details {
         static constexpr auto member = Mem;
         static constexpr auto parent = parent_of(member);
         static constexpr auto member_index = [] consteval {
-            const auto data_members = std::define_static_array(
-                subobjects_of(parent, std::meta::access_context::current())
-            );
+            const auto data_members = subobjects_of(parent, std::meta::access_context::unprivileged());
             return std::ranges::find(data_members, member) - data_members.begin();
         }();
         static constexpr auto layout = layout_of<typename [:parent:], Endian, Packed>;
@@ -311,9 +311,7 @@ namespace details {
         static constexpr auto member = Mem;
         static constexpr auto parent = parent_of(member);
         static constexpr auto member_index = [] consteval {
-            const auto data_members = std::define_static_array(
-                subobjects_of(parent, std::meta::access_context::current())
-            );
+            const auto data_members = subobjects_of(parent, std::meta::access_context::unprivileged());
             return std::ranges::find(data_members, member) - data_members.begin();
         }();
         static constexpr auto layout = layout_of<typename [:parent:], Endian, Packed>;
@@ -381,7 +379,9 @@ namespace details {
         static constexpr auto layout = layout_of<T, Endian, Packed>;
         if constexpr (is_class_type(type)) {
             static constexpr auto data_members = std::define_static_array(
-                subobjects_of(type, std::meta::access_context::current()));
+                subobjects_of(type, std::meta::access_context::unprivileged()));
+            static_assert(data_members.size() == layout.offsets.size(),
+                          "data member count mismatch");
             template for (constexpr auto I : std::views::iota(0uz, data_members.size())) {
                 static constexpr auto member = data_members[I];
                 static constexpr auto offset = layout.offsets[I];
@@ -424,7 +424,9 @@ namespace details {
         static constexpr auto layout = layout_of<T, Endian, Packed>;
         if constexpr (is_class_type(type)) {
             static constexpr auto data_members = std::define_static_array(
-                subobjects_of(type, std::meta::access_context::current()));
+                subobjects_of(type, std::meta::access_context::unprivileged()));
+            static_assert(data_members.size() == layout.offsets.size(),
+                          "data member count mismatch");
             template for (constexpr auto I : std::views::iota(0uz, data_members.size())) {
                 static constexpr auto member = data_members[I];
                 static constexpr auto offset = layout.offsets[I];
