@@ -1,0 +1,9 @@
+# Introduction
+
+Binary Protocol (binproto, BPT) is a header-only C++ library for mapping C++ objects to wired data. The idea is to simulate the `#pragma pack` behavior in standard C++. With C++26 reflection it is finally possible to implement this facility in a proper way.
+
+See test cases for usage examples.
+
+# Roadmap
+
+Will support variable-length field (e.g., array with dynamic size, union type) in the future. The current version only supports fixed-length fields.
