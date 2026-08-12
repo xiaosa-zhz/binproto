@@ -1,12 +1,20 @@
 # Introduction
 
-Binary Protocol (binproto, BPT) is a header-only C++ library for mapping C++ objects to wired data. The idea is to simulate the `#pragma pack` behavior in standard C++. With C++26 reflection it is finally possible to implement this facility in a proper way.
+This is a reflection-powered C++ library that maps C++ types to wire format.
 
-See test cases for usage examples.
+Historically, this domain is dominated by `#pragma pack(N)` extension and the layout rules of language/compiler, which is not portable in principle and often cause surprising bug in practice. This approach is not very intuitive and novice-friendly as well if one wants to get all the corner cases right.
+
+Another common practice is to use a IDL-based codegen facility to ensure everything works correctly. That works pretty well if a complete serialization framework is desired. But it introduces an extra codegen step to the build process, and may sometimes be too heavy to be suitable for all projects.
+
+With C++26 reflection, it is finally possible to provide a `#pragma pack(N)` equivalent behavior in standard C++, and also to avoid implementation-defined behavior on bit field binary layout. The whole library is written in standard C++, making it perfectly portable.
 
 # Roadmap
 
 Will support variable-length field (e.g., array with dynamic size, union type) in the future. The current version only supports fixed-length fields.
+
+# Compiler Support
+
+Only tested on GCC 16.2 for now. Other compilers don't support C++26 reflection yet.
 
 # Extra Disclaimer
 
