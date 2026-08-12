@@ -97,9 +97,9 @@ namespace details {
                     member);
             }
             if (group_begin == nullptr) {
-                group_begin = std::addressof(offsets[i]);
+                group_begin = offsets.data() + i;
             }
-            group_end = std::addressof(offsets[i + 1]);
+            group_end = offsets.data() + (i + 1);
             offsets[i] = member_offset_info{
                 .offset = current_offset,
                 .bit_offset = current_bit_offset,
@@ -385,9 +385,12 @@ namespace details {
             template for (constexpr auto I : std::views::iota(0uz, data_members.size())) {
                 static constexpr auto member = data_members[I];
                 static constexpr auto offset = layout.offsets[I];
-                if constexpr (is_bit_field(member) && bit_size_of(member) > 0) {
-                    static constexpr auto group_size = align_bits_byte(offset.group_bit_width);
-                    read_sub_bits<member, Endian, Packed>(value, raw.subspan(offset.offset, group_size));
+                if constexpr (is_bit_field(member)) {
+                    // Zero-width bit-fields carry no data.
+                    if constexpr (bit_size_of(member) > 0) {
+                        static constexpr auto group_size = align_bits_byte(offset.group_bit_width);
+                        read_sub_bits<member, Endian, Packed>(value, raw.subspan(offset.offset, group_size));
+                    }
                 } else {
                     using member_type = [:type_of(member):];
                     static constexpr auto member_size = layout_of<member_type, Endian, Packed>.total_size;
@@ -425,9 +428,12 @@ namespace details {
             template for (constexpr auto I : std::views::iota(0uz, data_members.size())) {
                 static constexpr auto member = data_members[I];
                 static constexpr auto offset = layout.offsets[I];
-                if constexpr (is_bit_field(member) && bit_size_of(member) > 0) {
-                    static constexpr auto group_size = align_bits_byte(offset.group_bit_width);
-                    write_sub_bits<member, Endian, Packed>(value.[:member:], raw.subspan(offset.offset, group_size));
+                if constexpr (is_bit_field(member)) {
+                    // Zero-width bit-fields carry no data.
+                    if constexpr (bit_size_of(member) > 0) {
+                        static constexpr auto group_size = align_bits_byte(offset.group_bit_width);
+                        write_sub_bits<member, Endian, Packed>(value.[:member:], raw.subspan(offset.offset, group_size));
+                    }
                 } else {
                     using member_type = [:type_of(member):];
                     static constexpr auto member_size = layout_of<member_type, Endian, Packed>.total_size;
@@ -458,7 +464,7 @@ namespace details {
 
 } // namespace bpt::details
 
-template<typename ValueType, std::endian GlobalEndian = std::endian::native, std::size_t Packed = alignof(ValueType)>
+template<typename ValueType, std::endian GlobalEndian = std::endian::native, std::size_t Packed = 1uz>
 class binary_view
 {
 public:
