@@ -1,6 +1,6 @@
 # Introduction
 
-This is a reflection-powered C++ library that maps C++ types to wire format.
+This is a reflection-powered library that maps C++ types to corresponding wire formats.
 
 Historically, this domain is dominated by `#pragma pack(N)` extension and the layout rules of language/compiler, which is not portable in principle and often cause surprising bug in practice. This approach is not very intuitive and novice-friendly as well if one wants to get all the corner cases right.
 
