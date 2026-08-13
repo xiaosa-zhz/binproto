@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <limits>
 #include <meta>
 #include <type_traits>
@@ -219,6 +220,28 @@ namespace bpt::details {
         return align_bits_byte(layout.offsets[member_index].group_bit_width);
     }
 
+    template<std::size_t N>
+    constexpr std::size_t load_group_value(const std::byte* raw) noexcept {
+        std::size_t value = 0;
+        for (auto i = 0uz; i < N; ++i) {
+            value |= static_cast<std::size_t>(std::to_integer<unsigned char>(raw[i])) << (i * CHAR_BIT);
+        }
+        if constexpr (std::endian::native == std::endian::big) {
+            value = std::byteswap(value);
+        }
+        return value;
+    }
+
+    template<std::size_t N>
+    constexpr void store_group_value(std::byte* raw, std::size_t value) noexcept {
+        if constexpr (std::endian::native == std::endian::big) {
+            value = std::byteswap(value);
+        }
+        for (auto i = 0uz; i < N; ++i) {
+            raw[i] = static_cast<std::byte>(value >> (i * CHAR_BIT));
+        }
+    }
+
     template<typename T>
     using value_rep_type = std::array<std::byte, sizeof(T)>;
 
@@ -258,11 +281,10 @@ namespace bpt::details {
         static constexpr auto offset = layout.offsets[member_index];
         static constexpr auto member_width = bit_size_of(member);
         static constexpr auto member_type = type_of(member);
+        static constexpr auto group_length = align_bits_byte(offset.group_bit_width);
         static_assert(is_sane_endian(std::endian::native) && is_sane_endian(Endian),
                       "only little-endian and big-endian are supported");
-        value_rep_type<std::size_t> buffer{};
-        std::ranges::copy_n(raw.data(), align_bits_byte(offset.group_bit_width), buffer.data());
-        std::size_t group_value = std::bit_cast<std::size_t>(buffer);
+        std::size_t group_value = load_group_value<group_length>(raw.data());
         if constexpr (Endian != std::endian::native) {
             group_value = std::byteswap(group_value);
         }
@@ -321,6 +343,7 @@ namespace bpt::details {
         static constexpr auto offset = layout.offsets[member_index];
         static constexpr auto member_width = bit_size_of(member);
         static constexpr auto member_type = type_of(member);
+        static constexpr auto group_length = align_bits_byte(offset.group_bit_width);
         static_assert(is_sane_endian(std::endian::native) && is_sane_endian(Endian),
                       "only little-endian and big-endian are supported");
         const auto value = [&obj] -> typename [:member_type:] {
@@ -361,9 +384,7 @@ namespace bpt::details {
         }();
         group_value &= (1uz << member_width) - 1;
         group_value <<= shift;
-        value_rep_type<std::size_t> buffer{};
-        std::ranges::copy_n(raw.data(), align_bits_byte(offset.group_bit_width), buffer.data());
-        std::size_t write_value = std::bit_cast<std::size_t>(buffer);
+        std::size_t write_value = load_group_value<group_length>(raw.data());
         if constexpr (Endian != std::endian::native) {
             write_value = std::byteswap(write_value);
         }
@@ -372,8 +393,7 @@ namespace bpt::details {
         if constexpr (Endian != std::endian::native) {
             write_value = std::byteswap(write_value);
         }
-        buffer = std::bit_cast<value_rep_type<std::size_t>>(write_value);
-        std::ranges::copy_n(buffer.data(), align_bits_byte(offset.group_bit_width), raw.data());
+        store_group_value<group_length>(raw.data(), write_value);
     }
 
     template<std::endian Endian, std::size_t Packed, typename T>
@@ -409,7 +429,7 @@ namespace bpt::details {
         } else {
             static_assert(is_arithmetic_type(type) || is_floating_point_type(type) || is_enum_type(type),
                           "only arithmetic, floating-point, enum, array, and class types are supported");
-            value_rep_type<T> buffer{};
+            value_rep_type<T> buffer [[indeterminate]];
             std::ranges::copy_n(raw.data(), layout.total_size, buffer.data());
             if constexpr (Endian != std::endian::native) {
                 if constexpr (is_floating_point_type(type)) {
