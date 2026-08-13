@@ -139,7 +139,7 @@ public:
         }
     }
 
-    static constexpr std::size_t wire_size() noexcept {
+    static consteval std::size_t wire_size() noexcept {
         return details::layout_of<value_type, endian, packed>.total_size;
     }
 
@@ -175,7 +175,7 @@ public:
     using details::subview_base<readonly_binary_view>::subview;
     using details::read_base<readonly_binary_view>::read;
 
-    static constexpr std::size_t wire_size() noexcept {
+    static consteval std::size_t wire_size() noexcept {
         return details::layout_of<value_type, endian, packed>.total_size;
     }
 
