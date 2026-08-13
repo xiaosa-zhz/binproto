@@ -430,6 +430,7 @@ namespace bpt::details {
             static_assert(is_arithmetic_type(type) || is_floating_point_type(type) || is_enum_type(type),
                           "only arithmetic, floating-point, enum, array, and class types are supported");
             value_rep_type<T> buffer [[indeterminate]];
+            static_assert(layout.total_size == buffer.size(), "layout total size mismatch");
             std::ranges::copy_n(raw.data(), layout.total_size, buffer.data());
             if constexpr (Endian != std::endian::native) {
                 if constexpr (is_floating_point_type(type)) {
