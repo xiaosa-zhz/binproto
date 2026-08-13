@@ -14,6 +14,15 @@ inline constexpr bool is_member_accessible = std::is_class_v<Obj>
 template<typename View>
 struct bv_traits;
 
+template<template<typename, std::endian, std::size_t> class VTMP, typename T, std::endian E, std::size_t P>
+struct bv_traits<VTMP<T, E, P>> {
+    using value_type = T;
+    static constexpr std::endian endian = E;
+    static constexpr std::size_t packed = P;
+    template<typename U>
+    using rebind = VTMP<U, E, P>;
+};
+
 template<typename View, std::meta::info Mem>
 using subview_return_type = bv_traits<View>::template rebind<typename [:type_of(Mem):]>;
 
@@ -171,27 +180,5 @@ public:
 private:
     buffer_type raw;
 };
-
-namespace details {
-
-template<typename T, std::endian E, std::size_t P>
-struct bv_traits<binary_view<T, E, P>> {
-    using value_type = T;
-    static constexpr std::endian endian = E;
-    static constexpr std::size_t packed = P;
-    template<typename U>
-    using rebind = binary_view<U, E, P>;
-};
-
-template<typename T, std::endian E, std::size_t P>
-struct bv_traits<readonly_binary_view<T, E, P>> {
-    using value_type = T;
-    static constexpr std::endian endian = E;
-    static constexpr std::size_t packed = P;
-    template<typename U>
-    using rebind = readonly_binary_view<U, E, P>;
-};
-
-} // namespace bpt::details
 
 } // namespace bpt
