@@ -15,7 +15,9 @@
 namespace bpt::details {
 
     template<typename T, std::meta::info Mem>
-    inline constexpr bool member_accessible = requires (T& t) { t.[:Mem:]; };
+    concept member_accessible = std::is_class_v<T>
+                             && (is_nonstatic_data_member(Mem) || is_base(Mem))
+                             && requires (T& v) { v.[:Mem:]; };
 
     struct member_offset_info {
         std::size_t offset = 0;
@@ -45,8 +47,10 @@ namespace bpt::details {
                                                          std::endian endian,
                                                          std::size_t required_align);
 
-    consteval std::vector<std::meta::info> members_for_layout(std::meta::info type) {
-        std::vector<std::meta::info> result = bases_of(type, std::meta::access_context::unprivileged());
+    // This function returns all bases and fields that contribute to the wire format layout,
+    // including all unnamed bit-fields.
+    consteval auto members_for_layout(std::meta::info type) {
+        auto result = bases_of(type, std::meta::access_context::unprivileged());
         for (auto member : members_of(type, std::meta::access_context::unprivileged())) {
             if (!is_static_member(member)) {
                 if (is_nonstatic_data_member(member) || is_bit_field(member)) {
@@ -264,7 +268,7 @@ namespace bpt::details {
         }
     }():];
 
-    consteval bool is_sane_endian(std::endian endian) noexcept {
+    consteval bool is_sane_endian(std::endian endian = std::endian::native) noexcept {
         return (endian == std::endian::little || endian == std::endian::big);
     }
 
@@ -282,7 +286,7 @@ namespace bpt::details {
         static constexpr auto member_width = bit_size_of(member);
         static constexpr auto member_type = type_of(member);
         static constexpr auto group_length = align_bits_byte(offset.group_bit_width);
-        static_assert(is_sane_endian(std::endian::native) && is_sane_endian(Endian),
+        static_assert(is_sane_endian() && is_sane_endian(Endian),
                       "only little-endian and big-endian are supported");
         std::size_t group_value = load_group_value<group_length>(raw.data());
         if constexpr (Endian != std::endian::native) {
@@ -344,7 +348,7 @@ namespace bpt::details {
         static constexpr auto member_width = bit_size_of(member);
         static constexpr auto member_type = type_of(member);
         static constexpr auto group_length = align_bits_byte(offset.group_bit_width);
-        static_assert(is_sane_endian(std::endian::native) && is_sane_endian(Endian),
+        static_assert(is_sane_endian() && is_sane_endian(Endian),
                       "only little-endian and big-endian are supported");
         const auto value = [&obj] -> typename [:member_type:] {
             if constexpr (is_class_type(^^T)) {

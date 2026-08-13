@@ -6,11 +6,6 @@ namespace bpt {
 
 namespace details {
 
-template<typename Obj, std::meta::info Mem>
-inline constexpr bool is_member_accessible = std::is_class_v<Obj>
-    && (is_nonstatic_data_member(Mem) || is_base(Mem))
-    && requires (Obj& v) { v.[:Mem:]; };
-
 template<typename View>
 struct bv_traits;
 
@@ -23,25 +18,28 @@ struct bv_traits<VTMP<T, E, P>> {
     using rebind = VTMP<U, E, P>;
 };
 
-template<typename View, std::meta::info Mem>
-using subview_return_type = bv_traits<View>::template rebind<typename [:type_of(Mem):]>;
+template<std::meta::info Mem>
+using member_type = [:type_of(Mem):];
 
 template<typename Derived>
 class subview_base
 {
     using traits = bv_traits<Derived>;
+    using value_type = traits::value_type;
+    static constexpr auto endian = traits::endian;
+    static constexpr auto packed = traits::packed;
+
+    template<std::meta::info Mem>
+    using rebind_view = traits::template rebind<member_type<Mem>>;
+
 public:
     template<std::meta::info Mem>
-        requires details::is_member_accessible<typename traits::value_type, Mem>
-              && (!is_bit_field(Mem))
-    constexpr subview_return_type<Derived, Mem> subview() const noexcept {
-        using value_type = traits::value_type;
-        static constexpr auto endian = traits::endian;
-        static constexpr auto packed = traits::packed;
+        requires details::member_accessible<value_type, Mem> && (!is_bit_field(Mem))
+    constexpr rebind_view<Mem> subview() const noexcept {
         static constexpr auto offset
             = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
         static constexpr auto member_size
-            = details::layout_of<typename [:type_of(Mem):], endian, packed>.total_size;
+            = details::layout_of<member_type<Mem>, endian, packed>.total_size;
         const auto raw = ((const Derived*)this)->buffer();
         if (raw.size() < offset + member_size) {
             return {};
@@ -54,11 +52,12 @@ template<typename Derived>
 class read_base
 {
     using traits = bv_traits<Derived>;
+    using value_type = traits::value_type;
+    static constexpr auto endian = traits::endian;
+    static constexpr auto packed = traits::packed;
+
 public:
-    constexpr std::error_code read(typename traits::value_type& value) const noexcept {
-        using value_type = traits::value_type;
-        static constexpr auto endian = traits::endian;
-        static constexpr auto packed = traits::packed;
+    constexpr std::error_code read(value_type& value) const noexcept {
         static constexpr auto layout = details::layout_of<value_type, endian, packed>;
         const auto raw = ((const Derived*)this)->buffer();
         if (raw.size() < layout.total_size) {
@@ -69,11 +68,8 @@ public:
     }
 
     template<std::meta::info Mem>
-        requires details::is_member_accessible<typename traits::value_type, Mem>
-    constexpr std::error_code read(typename [:type_of(Mem):]& value) const noexcept {
-        using value_type = traits::value_type;
-        static constexpr auto endian = traits::endian;
-        static constexpr auto packed = traits::packed;
+        requires details::member_accessible<value_type, Mem>
+    constexpr std::error_code read(member_type<Mem>& value) const noexcept {
         const auto& self = *((const Derived*)this);
         if constexpr (is_bit_field(Mem)) {
             static constexpr std::size_t offset
@@ -126,7 +122,7 @@ public:
     }
 
     template<std::meta::info Mem>
-        requires details::is_member_accessible<value_type, Mem>
+        requires details::member_accessible<value_type, Mem>
     constexpr std::error_code write(typename [:add_const(type_of(Mem)):]& value) const noexcept {
         if constexpr (is_bit_field(Mem)) {
             static constexpr std::size_t offset
@@ -143,7 +139,11 @@ public:
         }
     }
 
-    buffer_type buffer() const noexcept { return raw; }
+    static constexpr std::size_t wire_size() noexcept {
+        return details::layout_of<value_type, endian, packed>.total_size;
+    }
+
+    constexpr buffer_type buffer() const noexcept { return raw; }
 
 private:
     buffer_type raw;
@@ -175,7 +175,11 @@ public:
     using details::subview_base<readonly_binary_view>::subview;
     using details::read_base<readonly_binary_view>::read;
 
-    buffer_type buffer() const noexcept { return raw; }
+    static constexpr std::size_t wire_size() noexcept {
+        return details::layout_of<value_type, endian, packed>.total_size;
+    }
+
+    constexpr buffer_type buffer() const noexcept { return raw; }
 
 private:
     buffer_type raw;
