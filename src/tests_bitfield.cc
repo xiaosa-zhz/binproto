@@ -6,7 +6,7 @@
 #include <system_error>
 #include <utility>
 
-#include "binproto.hh"
+#include "binproto/core.hh"
 
 // Bit-field test structs
 struct Flags { std::uint8_t a : 3; std::uint8_t b : 5; };
@@ -673,10 +673,10 @@ int run_bitfield_tests() {
 
         Flags f{};
         std::uint8_t a = 0;
-        bool ok = view.read(f) == std::errc::result_out_of_range
-               && view.read<^^Flags::a>(a) == std::errc::result_out_of_range
-               && view.write(f) == std::errc::result_out_of_range
-               && view.write<^^Flags::a>(std::uint8_t{1}) == std::errc::result_out_of_range;
+        bool ok = view.read(f) == bpt::error::buffer_too_small
+               && view.read<^^Flags::a>(a) == bpt::error::buffer_too_small
+               && view.write(f) == bpt::error::buffer_too_small
+               && view.write<^^Flags::a>(std::uint8_t{1}) == bpt::error::buffer_too_small;
         std::println("[{:<15} {:<13}] empty buffer | {}",
                      "Flags", "bounds", ok ? "OK" : "FAIL");
         if (!ok) return 1;

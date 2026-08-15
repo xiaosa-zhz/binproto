@@ -1,6 +1,7 @@
 #pragma once
 
 #include "details/layout.hh"
+#include "error.hh"
 
 namespace bpt {
 
@@ -57,11 +58,11 @@ class read_base
     static constexpr auto packed = traits::packed;
 
 public:
-    constexpr std::error_code read(value_type& value) const noexcept {
+    constexpr bpt::error read(value_type& value) const noexcept {
         static constexpr auto layout = details::layout_of<value_type, endian, packed>;
         const auto raw = ((const Derived*)this)->buffer();
         if (raw.size() < layout.total_size) {
-            return std::make_error_code(std::errc::result_out_of_range);
+            return bpt::error::buffer_too_small;
         }
         details::read<endian, packed>(value, raw.subspan(0, layout.total_size));
         return {};
@@ -69,7 +70,7 @@ public:
 
     template<std::meta::info Mem>
         requires details::member_accessible<value_type, Mem>
-    constexpr std::error_code read(member_type<Mem>& value) const noexcept {
+    constexpr bpt::error read(member_type<Mem>& value) const noexcept {
         const auto& self = *((const Derived*)this);
         if constexpr (is_bit_field(Mem)) {
             static constexpr std::size_t offset
@@ -78,7 +79,7 @@ public:
                 = details::bit_field_group_width_of<Mem, endian, packed>;
             const auto raw = self.buffer();
             if (raw.size() < offset + group_size) {
-                return std::make_error_code(std::errc::result_out_of_range);
+                return bpt::error::buffer_too_small;
             }
             details::read_sub_bits<Mem, endian, packed>(value, raw.subspan(offset, group_size));
             return {};
@@ -112,10 +113,10 @@ public:
     using details::subview_base<binary_view>::subview;
     using details::read_base<binary_view>::read;
 
-    constexpr std::error_code write(const value_type& value) const noexcept {
+    constexpr bpt::error write(const value_type& value) const noexcept {
         static constexpr auto layout = details::layout_of<value_type, endian, packed>;
         if (raw.size() < layout.total_size) {
-            return std::make_error_code(std::errc::result_out_of_range);
+            return bpt::error::buffer_too_small;
         }
         details::write<endian, packed>(value, raw.subspan(0, layout.total_size));
         return {};
@@ -123,14 +124,14 @@ public:
 
     template<std::meta::info Mem>
         requires details::member_accessible<value_type, Mem>
-    constexpr std::error_code write(typename [:add_const(type_of(Mem)):]& value) const noexcept {
+    constexpr bpt::error write(typename [:add_const(type_of(Mem)):]& value) const noexcept {
         if constexpr (is_bit_field(Mem)) {
             static constexpr std::size_t offset
                 = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
             static constexpr std::size_t group_size
                 = details::bit_field_group_width_of<Mem, endian, packed>;
             if (raw.size() < offset + group_size) {
-                return std::make_error_code(std::errc::result_out_of_range);
+                return bpt::error::buffer_too_small;
             }
             details::write_sub_bits<Mem, endian, packed>(value, raw.subspan(offset, group_size));
             return {};

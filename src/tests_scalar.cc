@@ -5,7 +5,7 @@
 #include <print>
 #include <system_error>
 
-#include "binproto.hh"
+#include "binproto/core.hh"
 
 // Test structs
 struct Empty {};
