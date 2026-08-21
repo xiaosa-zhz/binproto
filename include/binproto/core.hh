@@ -1,7 +1,6 @@
 #pragma once
 
 #include "details/layout.hh"
-#include "error.hh"
 
 namespace bpt {
 
@@ -58,19 +57,19 @@ class read_base
     static constexpr auto packed = traits::packed;
 
 public:
-    constexpr bpt::error read(value_type& value) const noexcept {
+    constexpr bool read(value_type& value) const noexcept {
         static constexpr auto layout = details::layout_of<value_type, endian, packed>;
         const auto raw = ((const Derived*)this)->buffer();
         if (raw.size() < layout.total_size) {
-            return bpt::error::buffer_too_small;
+            return false;
         }
         details::read<endian, packed>(value, raw.subspan(0, layout.total_size));
-        return {};
+        return true;
     }
 
     template<std::meta::info Mem>
         requires details::member_accessible<value_type, Mem>
-    constexpr bpt::error read(member_type<Mem>& value) const noexcept {
+    constexpr bool read(member_type<Mem>& value) const noexcept {
         const auto& self = *((const Derived*)this);
         if constexpr (is_bit_field(Mem)) {
             static constexpr std::size_t offset
@@ -79,10 +78,10 @@ public:
                 = details::bit_field_group_width_of<Mem, endian, packed>;
             const auto raw = self.buffer();
             if (raw.size() < offset + group_size) {
-                return bpt::error::buffer_too_small;
+                return false;
             }
             details::read_sub_bits<Mem, endian, packed>(value, raw.subspan(offset, group_size));
-            return {};
+            return true;
         } else {
             return self.template subview<Mem>().read(value);
         }
@@ -113,28 +112,28 @@ public:
     using details::subview_base<binary_view>::subview;
     using details::read_base<binary_view>::read;
 
-    constexpr bpt::error write(const value_type& value) const noexcept {
+    constexpr bool write(const value_type& value) const noexcept {
         static constexpr auto layout = details::layout_of<value_type, endian, packed>;
         if (raw.size() < layout.total_size) {
-            return bpt::error::buffer_too_small;
+            return false;
         }
         details::write<endian, packed>(value, raw.subspan(0, layout.total_size));
-        return {};
+        return true;
     }
 
     template<std::meta::info Mem>
         requires details::member_accessible<value_type, Mem>
-    constexpr bpt::error write(typename [:add_const(type_of(Mem)):]& value) const noexcept {
+    constexpr bool write(typename [:add_const(type_of(Mem)):]& value) const noexcept {
         if constexpr (is_bit_field(Mem)) {
             static constexpr std::size_t offset
                 = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
             static constexpr std::size_t group_size
                 = details::bit_field_group_width_of<Mem, endian, packed>;
             if (raw.size() < offset + group_size) {
-                return bpt::error::buffer_too_small;
+                return false;
             }
             details::write_sub_bits<Mem, endian, packed>(value, raw.subspan(offset, group_size));
-            return {};
+            return true;
         } else {
             return this->template subview<Mem>().write(value);
         }

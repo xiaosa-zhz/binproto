@@ -28,30 +28,30 @@ int run_scalar_tests() {
 
         Simple s{0x11223344, 0x55, 0x66778899AABBCCDDLL};
 
-        if (auto ec = view.write<^^Simple::a>(s.a); ec) {
-            std::println("write a failed: {}", ec.message());
+        if (!view.write<^^Simple::a>(s.a)) {
+            std::println("write a failed");
             return 1;
         }
-        if (auto ec = view.write<^^Simple::b>(s.b); ec) {
-            std::println("write b failed: {}", ec.message());
+        if (!view.write<^^Simple::b>(s.b)) {
+            std::println("write b failed");
             return 1;
         }
-        if (auto ec = view.write<^^Simple::c>(s.c); ec) {
-            std::println("write c failed: {}", ec.message());
+        if (!view.write<^^Simple::c>(s.c)) {
+            std::println("write c failed");
             return 1;
         }
 
         Simple r{};
-        if (auto ec = view.read<^^Simple::a>(r.a); ec) {
-            std::println("read a failed: {}", ec.message());
+        if (!view.read<^^Simple::a>(r.a)) {
+            std::println("read a failed");
             return 1;
         }
-        if (auto ec = view.read<^^Simple::b>(r.b); ec) {
-            std::println("read b failed: {}", ec.message());
+        if (!view.read<^^Simple::b>(r.b)) {
+            std::println("read b failed");
             return 1;
         }
-        if (auto ec = view.read<^^Simple::c>(r.c); ec) {
-            std::println("read c failed: {}", ec.message());
+        if (!view.read<^^Simple::c>(r.c)) {
+            std::println("read c failed");
             return 1;
         }
 
@@ -159,14 +159,14 @@ int run_scalar_tests() {
 
         Simple s{0x11223344, 0x55, 0x66778899AABBCCDDLL};
 
-        if (auto ec = view.write(s); ec) {
-            std::println("write failed: {}", ec.message());
+        if (!view.write(s)) {
+            std::println("write failed");
             return 1;
         }
 
         Simple r{};
-        if (auto ec = view.read(r); ec) {
-            std::println("read failed: {}", ec.message());
+        if (!view.read(r)) {
+            std::println("read failed");
             return 1;
         }
 
@@ -184,7 +184,7 @@ int run_scalar_tests() {
         bpt::binary_view<WithArray, std::endian::little, 1> view(storage);
 
         WithArray s{0x11223344, {0x1112, 0x3344, 0x5566}, 0x77};
-        if (auto ec = view.write(s); ec) return 1;
+        if (!view.write(s)) return 1;
 
         bool wire_ok = std::to_integer<unsigned>(storage[0]) == 0x44
                     && std::to_integer<unsigned>(storage[3]) == 0x11
@@ -195,7 +195,7 @@ int run_scalar_tests() {
                     && std::to_integer<unsigned>(storage[10]) == 0x77;
 
         WithArray r{};
-        if (auto ec = view.read(r); ec) return 1;
+        if (!view.read(r)) return 1;
         bool ok = wire_ok && r.head == 0x11223344
                && r.arr[0] == 0x1112 && r.arr[1] == 0x3344 && r.arr[2] == 0x5566
                && r.tail == 0x77;
@@ -211,14 +211,14 @@ int run_scalar_tests() {
         bpt::binary_view<WithArray, std::endian::big, 1> view(storage);
 
         WithArray s{0x11223344, {0x1112, 0x3344, 0x5566}, 0x77};
-        if (auto ec = view.write(s); ec) return 1;
+        if (!view.write(s)) return 1;
 
         bool wire_ok = std::to_integer<unsigned>(storage[4]) == 0x11
                     && std::to_integer<unsigned>(storage[5]) == 0x12
                     && std::to_integer<unsigned>(storage[8]) == 0x55;
 
         WithArray r{};
-        if (auto ec = view.read(r); ec) return 1;
+        if (!view.read(r)) return 1;
         bool ok = wire_ok && r.head == 0x11223344 && r.arr[0] == 0x1112
                && r.arr[2] == 0x5566 && r.tail == 0x77;
         std::println("[{:<15} {:<13}] wire arr[0]={:02x}{:02x} | {}",
@@ -234,10 +234,10 @@ int run_scalar_tests() {
 
         std::uint16_t arr[3]{0xAAAA, 0xBBBB, 0xCCCC};
         auto sub = view.subview<^^WithArray::arr>();
-        if (auto ec = sub.write(arr); ec) return 1;
+        if (!sub.write(arr)) return 1;
 
         std::uint16_t rr[3]{};
-        if (auto ec = sub.read(rr); ec) return 1;
+        if (!sub.read(rr)) return 1;
         bool ok = rr[0] == 0xAAAA && rr[1] == 0xBBBB && rr[2] == 0xCCCC
                && std::to_integer<unsigned>(storage[4]) == 0xAA;
         std::println("[{:<15} {:<13}] {:x} {:x} {:x} | {}",
@@ -251,10 +251,10 @@ int run_scalar_tests() {
         bpt::binary_view<WithStdArray, std::endian::little, 1> view(storage);
 
         WithStdArray s{0x11223344, {0x1112, 0x3344, 0x5566}, 0x77};
-        if (auto ec = view.write(s); ec) return 1;
+        if (!view.write(s)) return 1;
 
         WithStdArray r{};
-        if (auto ec = view.read(r); ec) return 1;
+        if (!view.read(r)) return 1;
         bool ok = r.head == 0x11223344 && r.arr[0] == 0x1112 && r.arr[1] == 0x3344
                && r.arr[2] == 0x5566 && r.tail == 0x77
                && std::to_integer<unsigned>(storage[4]) == 0x12;
@@ -270,13 +270,13 @@ int run_scalar_tests() {
         bpt::binary_view<Grid, std::endian::little, 1> view(storage);
 
         Grid s{3, {{1, 2}, {3, 4}}};
-        if (auto ec = view.write(s); ec) return 1;
+        if (!view.write(s)) return 1;
         bool wire_ok = std::to_integer<unsigned>(storage[0]) == 3
                     && std::to_integer<unsigned>(storage[1]) == 1
                     && std::to_integer<unsigned>(storage[5]) == 3;
 
         Grid r{};
-        if (auto ec = view.read(r); ec) return 1;
+        if (!view.read(r)) return 1;
         bool ok = wire_ok && r.n == 3
                && r.pts[0].x == 1 && r.pts[0].y == 2
                && r.pts[1].x == 3 && r.pts[1].y == 4;
@@ -292,9 +292,9 @@ int run_scalar_tests() {
         bpt::binary_view<Matrix, std::endian::little, 1> view(storage);
 
         Matrix s{{{1, 2, 3}, {4, 5, 6}}};
-        if (auto ec = view.write(s); ec) return 1;
+        if (!view.write(s)) return 1;
         Matrix r{};
-        if (auto ec = view.read(r); ec) return 1;
+        if (!view.read(r)) return 1;
         bool ok = r.m[0][0] == 1 && r.m[0][1] == 2 && r.m[0][2] == 3
                && r.m[1][0] == 4 && r.m[1][1] == 5 && r.m[1][2] == 6
                && std::to_integer<unsigned>(storage[0]) == 1
@@ -312,19 +312,19 @@ int run_scalar_tests() {
         std::array<std::byte, 32> raw_le{};
         bpt::binary_view<std::array<std::uint32_t, 4>, std::endian::little, 1> view_le(raw_le);
         std::array<std::uint32_t, 4> s{0x11223344, 0x55667788, 0x99AABBCC, 0xDDEEFF00};
-        if (auto ec = view_le.write(s); ec) return 1;
+        if (!view_le.write(s)) return 1;
         bool le_ok = std::to_integer<unsigned>(raw_le[0]) == 0x44
                   && std::to_integer<unsigned>(raw_le[15]) == 0xDD;
 
         std::array<std::byte, 32> raw_be{};
         bpt::binary_view<std::array<std::uint32_t, 4>, std::endian::big, 1> view_be(raw_be);
-        if (auto ec = view_be.write(s); ec) return 1;
+        if (!view_be.write(s)) return 1;
         bool be_ok = std::to_integer<unsigned>(raw_be[0]) == 0x11
                   && std::to_integer<unsigned>(raw_be[15]) == 0x00;
 
         std::array<std::uint32_t, 4> rl{}, rb{};
-        if (auto ec = view_le.read(rl); ec) return 1;
-        if (auto ec = view_be.read(rb); ec) return 1;
+        if (!view_le.read(rl)) return 1;
+        if (!view_be.read(rb)) return 1;
         bool ok = le_ok && be_ok && rl == s && rb == s;
         std::println("[{:<15} {:<13}] {:x} {:x} {:x} {:x} | {}",
                      "StdArray", "LE/BE", rl[0], rl[1], rl[2], rl[3], ok ? "OK" : "FAIL");
@@ -337,14 +337,14 @@ int run_scalar_tests() {
         bpt::binary_view<Simple, std::endian::little, 2> view(storage);
 
         Simple s{0x11223344, 0x55, 0x66778899AABBCCDDLL};
-        if (auto ec = view.write(s); ec) return 1;
+        if (!view.write(s)) return 1;
         // a@0-3, b@4, c aligned to 2 -> @6, total 14
         bool wire_ok = std::to_integer<unsigned>(storage[4]) == 0x55
                     && std::to_integer<unsigned>(storage[5]) == 0x00
                     && std::to_integer<unsigned>(storage[6]) == 0xDD;
 
         Simple r{};
-        if (auto ec = view.read(r); ec) return 1;
+        if (!view.read(r)) return 1;
         bool ok = wire_ok && s.a == r.a && s.b == r.b && s.c == r.c;
         std::println("[{:<15} {:<13}] a@0 b@4 c@6 total=14 | {}",
                      "Simple", "pack(2)", ok ? "OK" : "FAIL");
@@ -357,14 +357,14 @@ int run_scalar_tests() {
         bpt::binary_view<WithArray, std::endian::little, 2> view(storage);
 
         WithArray s{0x11223344, {0x1112, 0x3344, 0x5566}, 0x77};
-        if (auto ec = view.write(s); ec) return 1;
+        if (!view.write(s)) return 1;
         // head@0-3, arr@4-9, tail@10, total 12
         bool wire_ok = std::to_integer<unsigned>(storage[4]) == 0x12
                     && std::to_integer<unsigned>(storage[9]) == 0x55
                     && std::to_integer<unsigned>(storage[10]) == 0x77;
 
         WithArray r{};
-        if (auto ec = view.read(r); ec) return 1;
+        if (!view.read(r)) return 1;
         bool ok = wire_ok && r.head == 0x11223344 && r.arr[2] == 0x5566 && r.tail == 0x77;
         std::println("[{:<15} {:<13}] arr@4 tail@10 total=12 | {}",
                      "WithArray", "pack(2)", ok ? "OK" : "FAIL");
@@ -377,7 +377,7 @@ int run_scalar_tests() {
         bpt::binary_view<AfterByteArray, std::endian::little, 2> view(storage);
 
         AfterByteArray s{0x55, {0x11111111, 0x22222222, 0x33333333}};
-        if (auto ec = view.write(s); ec) return 1;
+        if (!view.write(s)) return 1;
         // pre@0, m aligned to 2 -> @2, m[2]@10-13, total 14
         bool wire_ok = std::to_integer<unsigned>(storage[0]) == 0x55
                     && std::to_integer<unsigned>(storage[1]) == 0x00
@@ -385,10 +385,10 @@ int run_scalar_tests() {
                     && std::to_integer<unsigned>(storage[10]) == 0x33;
 
         AfterByteArray r{};
-        if (auto ec = view.read(r); ec) return 1;
+        if (!view.read(r)) return 1;
         bool ok = wire_ok && r.pre == 0x55 && r.m[0] == 0x11111111 && r.m[2] == 0x33333333;
         std::println("[{:<15} {:<13}] m@2 total=14 | {}",
-                     "ByteArray", "pack(2)", ok ? "OK" : "FAIL");
+                     "AfterByteArray", "pack(2)", ok ? "OK" : "FAIL");
         if (!ok) return 1;
     }
 
