@@ -10,7 +10,7 @@ With C++26 reflection, it is finally possible to provide a `#pragma pack(N)` equ
 
 # Roadmap
 
-Will support variable-length field (e.g., array with dynamic size, union type) in the future. The current version only supports fixed-length fields.
+Will support simd acceleration in the future.
 
 # Compiler Support
 
