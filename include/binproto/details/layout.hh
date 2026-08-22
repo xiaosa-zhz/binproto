@@ -47,15 +47,17 @@ namespace bpt::details {
                                                          std::endian endian,
                                                          std::size_t required_align);
 
+    consteval std::meta::access_context unprivileged() noexcept {
+        return std::meta::access_context::unprivileged();
+    }
+
     // This function returns all bases and fields that contribute to the wire format layout,
     // including all unnamed bit-fields.
     consteval auto members_for_layout(std::meta::info type) {
-        auto result = bases_of(type, std::meta::access_context::unprivileged());
-        for (auto member : members_of(type, std::meta::access_context::unprivileged())) {
-            if (!is_static_member(member)) {
-                if (is_nonstatic_data_member(member) || is_bit_field(member)) {
-                    result.push_back(member);
-                }
+        auto result = bases_of(type, unprivileged());
+        for (auto member : members_of(type, unprivileged())) {
+            if (is_nonstatic_data_member(member) || is_bit_field(member)) {
+                result.push_back(member);
             }
         }
         return result;
@@ -191,22 +193,24 @@ namespace bpt::details {
             throw std::meta::exception("member is not a non-static data member", mem);
         }
         const auto layout = generate_member_offset_table(type, endian, packed);
-        const auto data_members = subobjects_of(type, std::meta::access_context::unprivileged());
+        const auto data_members = subobjects_of(type, unprivileged());
         // test direct members first
-        for (auto data_member : data_members) {
+        for (auto i = 0uz; const auto data_member : data_members) {
             if (data_member == mem) {
-                return layout.offsets[std::ranges::find(data_members, data_member) - data_members.begin()].offset;
+                return layout.offsets[i].offset;
             }
+            ++i;
         }
         // maybe in base classes
-        for (const auto base : bases_of(type, std::meta::access_context::unprivileged())) {
+        for (auto i = 0uz; const auto base : bases_of(type, unprivileged())) {
             const auto base_type = type_of(base);
             const bool accessible = extract<bool>(
                 substitute(^^member_accessible, { base_type, reflect_constant(mem) }));
             if (accessible) {
-                return get_overall_offset_of_member(base_type, endian, packed, mem) +
-                       layout.offsets[std::ranges::find(data_members, base) - data_members.begin()].offset;
+                return get_overall_offset_of_member(base_type, endian, packed, mem)
+                     + layout.offsets[i].offset;
             }
+            ++i;
         }
         // not found
         throw std::meta::exception("member not found in type", mem);
@@ -217,7 +221,7 @@ namespace bpt::details {
                                                     std::size_t packed) {
         const auto parent = parent_of(member);
         const auto member_index = [parent, member] {
-            const auto data_members = subobjects_of(parent, std::meta::access_context::unprivileged());
+            const auto data_members = subobjects_of(parent, unprivileged());
             return std::ranges::find(data_members, member) - data_members.begin();
         }();
         const auto layout = generate_member_offset_table(parent, endian, packed);
@@ -278,7 +282,7 @@ namespace bpt::details {
         static constexpr auto member = Mem;
         static constexpr auto parent = parent_of(member);
         static constexpr auto member_index = [] consteval {
-            const auto data_members = subobjects_of(parent, std::meta::access_context::unprivileged());
+            const auto data_members = subobjects_of(parent, unprivileged());
             return std::ranges::find(data_members, member) - data_members.begin();
         }();
         static constexpr auto layout = layout_of<typename [:parent:], Endian, Packed>;
@@ -340,7 +344,7 @@ namespace bpt::details {
         static constexpr auto member = Mem;
         static constexpr auto parent = parent_of(member);
         static constexpr auto member_index = [] consteval {
-            const auto data_members = subobjects_of(parent, std::meta::access_context::unprivileged());
+            const auto data_members = subobjects_of(parent, unprivileged());
             return std::ranges::find(data_members, member) - data_members.begin();
         }();
         static constexpr auto layout = layout_of<typename [:parent:], Endian, Packed>;
@@ -406,18 +410,15 @@ namespace bpt::details {
         static constexpr auto layout = layout_of<T, Endian, Packed>;
         if constexpr (is_class_type(type)) {
             static constexpr auto data_members = std::define_static_array(
-                subobjects_of(type, std::meta::access_context::unprivileged()));
+                subobjects_of(type, unprivileged()));
             static_assert(data_members.size() == layout.offsets.size(),
                           "data member count mismatch");
             template for (constexpr auto I : std::views::iota(0uz, data_members.size())) {
                 static constexpr auto member = data_members[I];
                 static constexpr auto offset = layout.offsets[I];
                 if constexpr (is_bit_field(member)) {
-                    // Zero-width bit-fields carry no data.
-                    if constexpr (bit_size_of(member) > 0) {
-                        static constexpr auto group_size = align_bits_byte(offset.group_bit_width);
-                        read_sub_bits<member, Endian, Packed>(value, raw.subspan(offset.offset, group_size));
-                    }
+                    static constexpr auto group_size = align_bits_byte(offset.group_bit_width);
+                    read_sub_bits<member, Endian, Packed>(value, raw.subspan(offset.offset, group_size));
                 } else {
                     using member_type = [:type_of(member):];
                     static constexpr auto member_size = layout_of<member_type, Endian, Packed>.total_size;
@@ -457,19 +458,16 @@ namespace bpt::details {
         static constexpr auto type = remove_cvref(^^T);
         static constexpr auto layout = layout_of<T, Endian, Packed>;
         if constexpr (is_class_type(type)) {
-            static constexpr auto data_members = std::define_static_array(
-                subobjects_of(type, std::meta::access_context::unprivileged()));
+            static constexpr auto data_members
+                = std::define_static_array(subobjects_of(type, unprivileged()));
             static_assert(data_members.size() == layout.offsets.size(),
                           "data member count mismatch");
             template for (constexpr auto I : std::views::iota(0uz, data_members.size())) {
                 static constexpr auto member = data_members[I];
                 static constexpr auto offset = layout.offsets[I];
                 if constexpr (is_bit_field(member)) {
-                    // Zero-width bit-fields carry no data.
-                    if constexpr (bit_size_of(member) > 0) {
-                        static constexpr auto group_size = align_bits_byte(offset.group_bit_width);
-                        write_sub_bits<member, Endian, Packed>(value.[:member:], raw.subspan(offset.offset, group_size));
-                    }
+                    static constexpr auto group_size = align_bits_byte(offset.group_bit_width);
+                    write_sub_bits<member, Endian, Packed>(value, raw.subspan(offset.offset, group_size));
                 } else {
                     using member_type = [:type_of(member):];
                     static constexpr auto member_size = layout_of<member_type, Endian, Packed>.total_size;

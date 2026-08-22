@@ -8,16 +8,29 @@
 #include "binproto/core.hh"
 
 // Test structs
-struct Empty {};
+struct Empty {
+    static constexpr std::size_t answer = 42;
+    constexpr bool foo() const noexcept { return true; }
+};
+
 struct Simple { std::int32_t a; std::int8_t b; std::int64_t c; };
-struct Inherited : Empty, Simple { std::int16_t d; };
+
+struct Inherited : Empty, Simple {
+    std::int16_t d;
+    constexpr void bar() const noexcept {}
+};
 
 // Array member test structs
 struct WithArray { std::int32_t head; std::uint16_t arr[3]; std::int8_t tail; };
 struct WithStdArray { std::int32_t head; std::array<std::uint16_t, 3> arr; std::int8_t tail; };
 struct Point { std::int16_t x; std::int16_t y; };
 struct Grid { std::uint8_t n; Point pts[2]; };
-struct Matrix { std::int32_t m[2][3]; };
+
+struct Matrix {
+    std::int32_t m[2][3];
+    constexpr std::int32_t operator[](std::size_t i, std::size_t j) const noexcept { return m[i][j]; }
+};
+
 struct AfterByteArray { std::uint8_t pre; std::uint32_t m[3]; };
 
 int run_scalar_tests() {
