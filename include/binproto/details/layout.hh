@@ -228,25 +228,28 @@ namespace bpt::details {
         return align_bits_byte(layout.offsets[member_index].group_bit_width);
     }
 
-    template<std::size_t N>
+    template<std::endian Endian, std::size_t N>
     constexpr std::size_t load_group_value(const std::byte* raw) noexcept {
         std::size_t value = 0;
         for (auto i = 0uz; i < N; ++i) {
-            value |= static_cast<std::size_t>(std::to_integer<unsigned char>(raw[i])) << (i * CHAR_BIT);
-        }
-        if constexpr (std::endian::native == std::endian::big) {
-            value = std::byteswap(value);
+            const auto byte = std::to_integer<std::size_t>(raw[i]);
+            if constexpr (Endian == std::endian::little) {
+                value |= byte << (i * CHAR_BIT);
+            } else {
+                value = (value << CHAR_BIT) | byte;
+            }
         }
         return value;
     }
 
-    template<std::size_t N>
+    template<std::endian Endian, std::size_t N>
     constexpr void store_group_value(std::byte* raw, std::size_t value) noexcept {
-        if constexpr (std::endian::native == std::endian::big) {
-            value = std::byteswap(value);
-        }
         for (auto i = 0uz; i < N; ++i) {
-            raw[i] = static_cast<std::byte>(value >> (i * CHAR_BIT));
+            if constexpr (Endian == std::endian::little) {
+                raw[i] = static_cast<std::byte>(value >> (i * CHAR_BIT));
+            } else {
+                raw[N - 1 - i] = static_cast<std::byte>(value >> (i * CHAR_BIT));
+            }
         }
     }
 
@@ -292,14 +295,11 @@ namespace bpt::details {
         static constexpr auto group_length = align_bits_byte(offset.group_bit_width);
         static_assert(is_sane_endian() && is_sane_endian(Endian),
                       "only little-endian and big-endian are supported");
-        std::size_t group_value = load_group_value<group_length>(raw.data());
-        if constexpr (Endian != std::endian::native) {
-            group_value = std::byteswap(group_value);
-        }
+        std::size_t group_value = load_group_value<Endian, group_length>(raw.data());
         if constexpr (Endian == std::endian::little) {
             group_value >>= offset.bit_offset;
         } else if constexpr (Endian == std::endian::big) {
-            group_value >>= (sizeof(std::size_t) * CHAR_BIT - member_width - offset.bit_offset);
+            group_value >>= group_length * CHAR_BIT - member_width - offset.bit_offset;
         } else {
             static_assert(false, "cannot reach here");
         }
@@ -381,27 +381,22 @@ namespace bpt::details {
                 return static_cast<std::size_t>(underlying_value);
             }
         }();
-        const auto shift = [] {
+        static constexpr auto shift = [] {
             if constexpr (Endian == std::endian::little) {
                 return offset.bit_offset;
             } else if constexpr (Endian == std::endian::big) {
-                return sizeof(std::size_t) * CHAR_BIT - member_width - offset.bit_offset;
+                return group_length * CHAR_BIT - member_width - offset.bit_offset;
             } else {
                 static_assert(false, "cannot reach here");
             }
         }();
-        group_value &= (1uz << member_width) - 1;
+        static constexpr auto member_mask = (1uz << member_width) - 1;
+        group_value &= member_mask;
         group_value <<= shift;
-        std::size_t write_value = load_group_value<group_length>(raw.data());
-        if constexpr (Endian != std::endian::native) {
-            write_value = std::byteswap(write_value);
-        }
-        write_value &= ~(((1uz << member_width) - 1) << shift);
+        std::size_t write_value = load_group_value<Endian, group_length>(raw.data());
+        write_value &= ~(member_mask << shift);
         write_value |= group_value;
-        if constexpr (Endian != std::endian::native) {
-            write_value = std::byteswap(write_value);
-        }
-        store_group_value<group_length>(raw.data(), write_value);
+        store_group_value<Endian, group_length>(raw.data(), write_value);
     }
 
     template<std::endian Endian, std::size_t Packed, typename T>
