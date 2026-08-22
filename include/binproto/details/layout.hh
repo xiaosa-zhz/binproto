@@ -428,8 +428,8 @@ namespace bpt::details {
         } else if constexpr (is_bounded_array_type(type)) {
             static constexpr auto elem_type = remove_extent(type);
             static constexpr auto elem_size = layout_of<typename [:elem_type:], Endian, Packed>.total_size;
-            template for (constexpr auto I : std::views::iota(0uz, extent(type))) {
-                read<Endian, Packed>(value[I], raw.subspan(I * elem_size, elem_size));
+            for (auto index : std::views::iota(0uz, extent(type))) {
+                read<Endian, Packed>(value[index], raw.subspan(index * elem_size, elem_size));
             }
         } else {
             static_assert(is_arithmetic_type(type) || is_floating_point_type(type) || is_enum_type(type),
@@ -477,8 +477,8 @@ namespace bpt::details {
         } else if constexpr (is_bounded_array_type(type)) {
             static constexpr auto elem_type = remove_extent(type);
             static constexpr auto elem_size = layout_of<typename [:elem_type:], Endian, Packed>.total_size;
-            template for (constexpr auto I : std::views::iota(0uz, extent(type))) {
-                write<Endian, Packed>(value[I], raw.subspan(I * elem_size, elem_size));
+            for (auto index : std::views::iota(0uz, extent(type))) {
+                write<Endian, Packed>(value[index], raw.subspan(index * elem_size, elem_size));
             }
         } else {
             static_assert(is_arithmetic_type(type) || is_floating_point_type(type) || is_enum_type(type),
