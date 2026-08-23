@@ -142,7 +142,8 @@ namespace bpt::details {
             const std::size_t effective_align = std::ranges::min(required_align, natural_align);
             current_offset = align_to(current_offset, effective_align);
             offsets.push_back({ .offset = current_offset });
-            auto subobj_layout = generate_member_offset_table(type_of(member), endian, required_align);
+            const auto subobj_layout
+                = generate_member_offset_table(type_of(member), endian, required_align);
             current_offset += subobj_layout.total_size;
         }
         accumulate_bitfield_group();
@@ -156,7 +157,8 @@ namespace bpt::details {
                                          std::endian endian,
                                          std::size_t required_align) {
         const std::size_t ext = extent(type);
-        auto element_layout = generate_member_offset_table(remove_extent(type), endian, required_align);
+        const auto element_layout
+            = generate_member_offset_table(remove_extent(type), endian, required_align);
         packed_layout result;
         const std::size_t stride = element_layout.total_size;
         std::vector<member_offset_info> offsets(ext);
@@ -235,8 +237,10 @@ namespace bpt::details {
             const auto byte = std::to_integer<std::size_t>(raw[i]);
             if constexpr (Endian == std::endian::little) {
                 value |= byte << (i * CHAR_BIT);
-            } else {
+            } else if constexpr (Endian == std::endian::big) {
                 value = (value << CHAR_BIT) | byte;
+            } else {
+                static_assert(false, "cannot reach here");
             }
         }
         return value;
@@ -247,8 +251,10 @@ namespace bpt::details {
         for (auto i = 0uz; i < N; ++i) {
             if constexpr (Endian == std::endian::little) {
                 raw[i] = static_cast<std::byte>(value >> (i * CHAR_BIT));
-            } else {
+            } else if constexpr (Endian == std::endian::big) {
                 raw[N - 1 - i] = static_cast<std::byte>(value >> (i * CHAR_BIT));
+            } else {
+                static_assert(false, "cannot reach here");
             }
         }
     }
@@ -261,22 +267,23 @@ namespace bpt::details {
 
     template<std::meta::info Mem, std::endian Endian, std::size_t Packed>
         requires (is_bit_field(Mem))
-    inline constexpr std::size_t bit_field_group_width_of = get_bit_field_group_width(Mem, Endian, Packed);
+    inline constexpr auto bit_field_group_width_of = get_bit_field_group_width(Mem, Endian, Packed);
 
     template<typename FloatType>
     using integer_rep_type = [:[] consteval {
-        static_assert(std::numeric_limits<FloatType>::is_iec559, "only IEEE 754 floating-point types are supported");
+        static_assert(std::numeric_limits<FloatType>::is_iec559,
+                      "only IEEE 754 floating-point types are supported");
         if constexpr (sizeof(FloatType) == 4) {
             return ^^decltype(std::uint32_t{});
         } else if constexpr (sizeof(FloatType) == 8) {
             return ^^decltype(std::uint64_t{});
         } else {
-            throw std::meta::exception("only 32-bit and 64-bit floating-point types are supported", ^^FloatType);
+            static_assert(false, "only 32-bit and 64-bit floating-point types are supported");
         }
     }():];
 
     consteval bool is_sane_endian(std::endian endian = std::endian::native) noexcept {
-        return (endian == std::endian::little || endian == std::endian::big);
+        return endian == std::endian::little || endian == std::endian::big;
     }
 
     template<std::meta::info Mem, std::endian Endian, std::size_t Packed, typename T>
