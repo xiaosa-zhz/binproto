@@ -328,12 +328,11 @@ namespace bpt::details {
 
     template<std::meta::info Member>
     constexpr auto to_member_value(std::size_t raw_bits) noexcept {
-        using member_type = [:type_of(Member):];
         static constexpr auto member_width = bit_size_of(Member);
-        static constexpr auto member_type_info = type_of(Member);
-        static constexpr auto value_info = is_enum_type(member_type_info)
-            ? underlying_type(member_type_info)
-            : member_type_info;
+        static constexpr auto member_type = type_of(Member);
+        static constexpr auto value_info = is_enum_type(member_type)
+            ? underlying_type(member_type)
+            : member_type; 
         auto value = [&raw_bits] {
             if constexpr (is_signed_type(value_info)) {
                 raw_bits |= ((0uz - (raw_bits >> (member_width - 1))) & ~((1uz << member_width) - 1));
@@ -343,8 +342,8 @@ namespace bpt::details {
                 return static_cast<typename [:value_info:]>(raw_bits);
             }
         }();
-        if constexpr (is_enum_type(member_type_info)) {
-            return static_cast<member_type>(value);
+        if constexpr (is_enum_type(member_type)) {
+            return static_cast<typename [:member_type:]>(value);
         } else {
             return value;
         }
