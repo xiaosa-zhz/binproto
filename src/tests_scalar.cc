@@ -84,14 +84,14 @@ int run_scalar_tests() {
 
         Simple s{0x77889900, 0x42, 0x123456789ABCDEF0LL};
 
-        view.write<^^Simple::a>(s.a);
-        view.write<^^Simple::b>(s.b);
-        view.write<^^Simple::c>(s.c);
+        (void) view.write<^^Simple::a>(s.a);
+        (void) view.write<^^Simple::b>(s.b);
+        (void) view.write<^^Simple::c>(s.c);
 
         Simple r{};
-        view.read<^^Simple::a>(r.a);
-        view.read<^^Simple::b>(r.b);
-        view.read<^^Simple::c>(r.c);
+        (void) view.read<^^Simple::a>(r.a);
+        (void) view.read<^^Simple::b>(r.b);
+        (void) view.read<^^Simple::c>(r.c);
 
         bool ok = (s.a == r.a && s.b == r.b && s.c == r.c);
         std::println("[{:<15} {:<13}] a={:#x} b={:#x} c={:#x} | roundtrip {}",
@@ -110,16 +110,16 @@ int run_scalar_tests() {
         Inherited s{{}, {0x11223344, 0x55, 0x66778899AABBCCDDLL}, 0x7788};
 
         // write inherited members via base reflection
-        view.write<^^Inherited::a>(s.a);
-        view.write<^^Inherited::b>(s.b);
-        view.write<^^Inherited::c>(s.c);
-        view.write<^^Inherited::d>(s.d);
+        (void) view.write<^^Inherited::a>(s.a);
+        (void) view.write<^^Inherited::b>(s.b);
+        (void) view.write<^^Inherited::c>(s.c);
+        (void) view.write<^^Inherited::d>(s.d);
 
         Inherited r{};
-        view.read<^^Simple::a>(r.a);
-        view.read<^^Simple::b>(r.b);
-        view.read<^^Simple::c>(r.c);
-        view.read<^^Inherited::d>(r.d);
+        (void) view.read<^^Simple::a>(r.a);
+        (void) view.read<^^Simple::b>(r.b);
+        (void) view.read<^^Simple::c>(r.c);
+        (void) view.read<^^Inherited::d>(r.d);
 
         bool ok = (s.a == r.a && s.b == r.b && s.c == r.c && s.d == r.d);
         std::println("[{:<15} {:<13}] a={:#x} b={:#x} c={:#x} d={:#x} | roundtrip {}",
@@ -138,9 +138,9 @@ int run_scalar_tests() {
 
         Simple s{0x11223344, 0x55, 0x66778899AABBCCDDLL};
 
-        view.write<^^Simple::a>(s.a);
-        view.write<^^Simple::b>(s.b);
-        view.write<^^Simple::c>(s.c);
+        (void) view.write<^^Simple::a>(s.a);
+        (void) view.write<^^Simple::b>(s.b);
+        (void) view.write<^^Simple::c>(s.c);
 
         // On a little-endian host, the wire bytes should be byte-swapped.
         std::int32_t wire_a = std::bit_cast<std::int32_t>(std::array<std::byte, 4>{
@@ -152,9 +152,9 @@ int run_scalar_tests() {
         if (!wire_ok) return 1;
 
         Simple r{};
-        view.read<^^Simple::a>(r.a);
-        view.read<^^Simple::b>(r.b);
-        view.read<^^Simple::c>(r.c);
+        (void) view.read<^^Simple::a>(r.a);
+        (void) view.read<^^Simple::b>(r.b);
+        (void) view.read<^^Simple::c>(r.c);
 
         bool ok = (s.a == r.a && s.b == r.b && s.c == r.c);
         std::println("[{:<15} {:<13}] a={:#x} b={:#x} c={:#x} | roundtrip {}",

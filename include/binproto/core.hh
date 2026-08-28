@@ -35,7 +35,7 @@ class view_base
 public:
     template<std::meta::info Mem>
         requires details::member_accessible<value_type, Mem> && (!is_bit_field(Mem))
-    constexpr rebind_view<Mem> subview() const noexcept {
+    [[nodiscard]] constexpr rebind_view<Mem> subview() const noexcept {
         static constexpr auto offset
             = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
         static constexpr auto member_size
@@ -47,10 +47,28 @@ public:
         return raw.subspan(offset, member_size);
     }
 
+    [[nodiscard]]
     static consteval std::size_t wire_size() noexcept {
         return details::layout_of<value_type, endian, packed>.total_size;
     }
 
+    [[nodiscard]] constexpr auto consumed() const noexcept {
+        auto raw = ((const Derived*)this)->buffer();
+        if (raw.size() < wire_size()) {
+            return decltype(raw){};
+        }
+        return raw.subspan(0, wire_size());
+    }
+
+    [[nodiscard]] constexpr auto remained() const noexcept {
+        auto raw = ((const Derived*)this)->buffer();
+        if (raw.size() < wire_size()) {
+            return decltype(raw){};
+        }
+        return raw.subspan(wire_size());
+    }
+
+    [[nodiscard]]
     constexpr bool read(value_type& value) const noexcept {
         const auto raw = ((const Derived*)this)->buffer();
         if (raw.size() < wire_size()) {
@@ -62,7 +80,7 @@ public:
 
     template<std::meta::info Mem>
         requires details::member_accessible<value_type, Mem>
-    constexpr bool read(member_type<Mem>& value) const noexcept {
+    [[nodiscard]] constexpr bool read(member_type<Mem>& value) const noexcept {
         if constexpr (is_bit_field(Mem)) {
             static constexpr std::size_t offset
                 = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
@@ -102,8 +120,11 @@ public:
 
     using base::subview;
     using base::wire_size;
+    using base::consumed;
+    using base::remained;
     using base::read;
 
+    [[nodiscard]]
     constexpr bool write(const value_type& value) const noexcept {
         if (raw.size() < wire_size()) {
             return false;
@@ -114,7 +135,7 @@ public:
 
     template<std::meta::info Mem>
         requires details::member_accessible<value_type, Mem>
-    constexpr bool write(typename [:add_const(type_of(Mem)):]& value) const noexcept {
+    [[nodiscard]] constexpr bool write(typename [:add_const(type_of(Mem)):]& value) const noexcept {
         if constexpr (is_bit_field(Mem)) {
             static constexpr std::size_t offset
                 = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
@@ -130,6 +151,7 @@ public:
         }
     }
 
+    [[nodiscard]]
     constexpr buffer_type buffer() const noexcept { return raw; }
 
 private:
@@ -160,8 +182,11 @@ public:
 
     using base::subview;
     using base::wire_size;
+    using base::consumed;
+    using base::remained;
     using base::read;
 
+    [[nodiscard]]
     constexpr buffer_type buffer() const noexcept { return raw; }
 
 private:
