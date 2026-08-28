@@ -332,9 +332,10 @@ namespace bpt::details {
         static constexpr auto member_type = type_of(Member);
         static constexpr auto value_info = is_enum_type(member_type)
             ? underlying_type(member_type)
-            : member_type; 
+            : member_type;
         auto value = [&raw_bits] {
             if constexpr (is_signed_type(value_info)) {
+                // sign-extend
                 raw_bits |= ((0uz - (raw_bits >> (member_width - 1))) & ~((1uz << member_width) - 1));
                 return static_cast<typename [:value_info:]>(
                     std::bit_cast<std::make_signed_t<std::size_t>>(raw_bits));
