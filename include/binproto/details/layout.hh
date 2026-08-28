@@ -1,16 +1,15 @@
 #pragma once
 
 #include <cstddef>
+#include <climits>
 #include <limits>
 #include <meta>
 #include <type_traits>
 #include <utility>
-#include <memory>
 #include <span>
 #include <bit>
 #include <algorithm>
 #include <ranges>
-#include <climits>
 
 namespace bpt::details {
 
