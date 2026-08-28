@@ -66,8 +66,8 @@ public:
         if constexpr (is_bit_field(Mem)) {
             static constexpr std::size_t offset
                 = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
-            static constexpr std::size_t group_size
-                = details::bit_field_group_width_of<Mem, endian, packed>;
+            static constexpr std::size_t group_size = details::align_bits_byte(
+                details::bit_field_group_width_of<Mem, endian, packed>.group_bit_width);
             const auto raw = ((const Derived*)this)->buffer();
             if (raw.size() < offset + group_size) {
                 return false;
@@ -118,8 +118,8 @@ public:
         if constexpr (is_bit_field(Mem)) {
             static constexpr std::size_t offset
                 = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
-            static constexpr std::size_t group_size
-                = details::bit_field_group_width_of<Mem, endian, packed>;
+            static constexpr std::size_t group_size = details::align_bits_byte(
+                details::bit_field_group_width_of<Mem, endian, packed>.group_bit_width);
             if (raw.size() < offset + group_size) {
                 return false;
             }

@@ -19,10 +19,21 @@ namespace bpt::details {
                              && (is_nonstatic_data_member(Mem) || is_base(Mem))
                              && requires (T& v) { v.[:Mem:]; };
 
+    struct bit_field_info {
+        std::size_t index = 0;
+        std::size_t bit_offset = 0;
+    };
+
     struct member_offset_info {
+        std::size_t index = 0;
         std::size_t offset = 0;
-        std::uint8_t bit_offset = 0;
-        std::uint8_t group_bit_width = 0;
+        std::size_t group_bit_width = 0;
+        const bit_field_info* bit_field_group_data = nullptr;
+        std::size_t bit_field_group_size = 0;
+
+        constexpr std::span<const bit_field_info> get_bit_field_group() const noexcept {
+            return std::span(bit_field_group_data, bit_field_group_size);
+        }
     };
 
     // Result of `generate_member_offset_table`: the packed offset of every
@@ -70,22 +81,24 @@ namespace bpt::details {
         packed_layout result;
         std::vector<member_offset_info> offsets;
         offsets.reserve(layout_members.size());
+        std::size_t index = 0;
         std::size_t current_offset = 0;
-        std::uint8_t current_bit_offset = 0;
-        member_offset_info* group_begin = nullptr;
-        member_offset_info* group_end = nullptr;
+        std::size_t current_bit_offset = 0;
+        std::vector<bit_field_info> bit_field_group;
         auto accumulate_bitfield_group = [&](std::meta::info member = {}) {
             auto finalize_group = [&]() {
-                if (group_begin != nullptr) {
-                    for (member_offset_info& info : std::span(group_begin, group_end)) {
-                        info.group_bit_width = current_bit_offset;
-                    }
-                    group_begin = nullptr;
-                    group_end = nullptr;
-                }
-                if (current_bit_offset > 0) {
+                if (!bit_field_group.empty()) {
+                    auto group_data = std::define_static_array(bit_field_group);
+                    offsets.push_back({
+                        .index = index,
+                        .offset = current_offset,
+                        .group_bit_width = current_bit_offset,
+                        .bit_field_group_data = group_data.data(),
+                        .bit_field_group_size = group_data.size()
+                    });
                     current_offset += align_bits_byte(current_bit_offset);
                     current_bit_offset = 0;
+                    bit_field_group.clear();
                 }
             };
             if (member == std::meta::info{}) {
@@ -118,11 +131,11 @@ namespace bpt::details {
                 current_offset = align_to(current_offset, effective_align);
             }
             if (has_identifier(member)) {
-                offsets.push_back({ .offset = current_offset, .bit_offset = current_bit_offset });
-                if (group_begin == nullptr) {
-                    group_begin = std::addressof(offsets.back());
-                }
-                group_end = std::addressof(offsets.back()) + 1;
+                bit_field_group.push_back({
+                    .index = index,
+                    .bit_offset = current_bit_offset
+                });
+                ++index;
             }
             current_bit_offset += bit_width;
         };
@@ -141,10 +154,11 @@ namespace bpt::details {
             const std::size_t natural_align = alignment_of(member);
             const std::size_t effective_align = std::ranges::min(required_align, natural_align);
             current_offset = align_to(current_offset, effective_align);
-            offsets.push_back({ .offset = current_offset });
+            offsets.push_back({ .index = index, .offset = current_offset });
             const auto subobj_layout
                 = generate_member_offset_table(type_of(member), endian, required_align);
             current_offset += subobj_layout.total_size;
+            ++index;
         }
         accumulate_bitfield_group();
         const std::size_t struct_align = std::ranges::min(required_align, alignment_of(type));
@@ -197,11 +211,16 @@ namespace bpt::details {
         const auto layout = generate_member_offset_table(type, endian, packed);
         const auto data_members = subobjects_of(type, unprivileged());
         // test direct members first
-        for (auto i = 0uz; const auto data_member : data_members) {
-            if (data_member == mem) {
-                return layout.offsets[i].offset;
+        for (const auto offset : layout.offsets) {
+            if (offset.group_bit_width > 0) {
+                for (auto info : offset.get_bit_field_group()) {
+                    if (data_members[info.index] == mem) {
+                        return offset.offset;
+                    }
+                }
+            } else if (data_members[offset.index] == mem) {
+                return offset.offset;
             }
-            ++i;
         }
         // maybe in base classes
         for (auto i = 0uz; const auto base : bases_of(type, unprivileged())) {
@@ -218,16 +237,29 @@ namespace bpt::details {
         throw std::meta::exception("member not found in type", mem);
     }
 
-    consteval std::size_t get_bit_field_group_width(std::meta::info member,
-                                                    std::endian endian,
-                                                    std::size_t packed) {
+    struct bit_field_desc {
+        std::size_t bit_offset = 0;
+        std::size_t group_bit_width = 0;
+    };
+
+    consteval bit_field_desc get_bit_field_group_width(std::meta::info member,
+                                                       std::endian endian,
+                                                       std::size_t packed) {
         const auto parent = parent_of(member);
-        const auto member_index = [parent, member] {
-            const auto data_members = subobjects_of(parent, unprivileged());
-            return std::ranges::find(data_members, member) - data_members.begin();
-        }();
+        const auto members = subobjects_of(parent, unprivileged());
         const auto layout = generate_member_offset_table(parent, endian, packed);
-        return align_bits_byte(layout.offsets[member_index].group_bit_width);
+        for (auto offset : layout.offsets) {
+            if (offset.group_bit_width == 0) {
+                continue;
+            }
+            const auto group = offset.get_bit_field_group();
+            for (auto info : group) {
+                if (members[info.index] == member) {
+                    return { .bit_offset = info.bit_offset, .group_bit_width = offset.group_bit_width };
+                }
+            }
+        }
+        throw std::meta::exception("member is not a bit-field or part of a bit-field group", member);
     }
 
     template<std::endian Endian, std::size_t N>
@@ -290,23 +322,17 @@ namespace bpt::details {
         requires (is_bit_field(Mem))
     constexpr void read_sub_bits(T& obj, std::span<const std::byte> raw) noexcept {
         static constexpr auto member = Mem;
-        static constexpr auto parent = parent_of(member);
-        static constexpr auto member_index = [] consteval {
-            const auto data_members = subobjects_of(parent, unprivileged());
-            return std::ranges::find(data_members, member) - data_members.begin();
-        }();
-        static constexpr auto layout = layout_of<typename [:parent:], Endian, Packed>;
-        static constexpr auto offset = layout.offsets[member_index];
+        static constexpr auto [bit_offset, group_bit_width] = bit_field_group_width_of<Mem, Endian, Packed>;
         static constexpr auto member_width = bit_size_of(member);
         static constexpr auto member_type = type_of(member);
-        static constexpr auto group_length = align_bits_byte(offset.group_bit_width);
+        static constexpr auto group_length = align_bits_byte(group_bit_width);
         static_assert(is_sane_endian() && is_sane_endian(Endian),
                       "only little-endian and big-endian are supported");
         std::size_t group_value = load_group_value<Endian, group_length>(raw.data());
         if constexpr (Endian == std::endian::little) {
-            group_value >>= offset.bit_offset;
+            group_value >>= bit_offset;
         } else if constexpr (Endian == std::endian::big) {
-            group_value >>= group_length * CHAR_BIT - member_width - offset.bit_offset;
+            group_value >>= group_length * CHAR_BIT - member_width - bit_offset;
         } else {
             static_assert(false, "cannot reach here");
         }
@@ -334,49 +360,28 @@ namespace bpt::details {
                 return underlying_value;
             }
         }();
-        if constexpr (is_class_type(^^T)) {
-            static_assert(is_same_type(parent, ^^T),
-                          "obj must be of the same type as the parent of the member");
-            obj.[:member:] = value;
-        } else {
-            static_assert(is_same_type(member_type, ^^T),
-                          "obj must be of the same type as the member");
-            obj = value;
-        }
+        static_assert(is_same_type(member_type, ^^T),
+                        "obj must be of the same type as the member");
+        obj = value;
     }
 
     template<std::meta::info Mem, std::endian Endian, std::size_t Packed, typename T>
         requires (is_bit_field(Mem))
     constexpr void write_sub_bits(const T& obj, std::span<std::byte> raw) noexcept {
         static constexpr auto member = Mem;
-        static constexpr auto parent = parent_of(member);
-        static constexpr auto member_index = [] consteval {
-            const auto data_members = subobjects_of(parent, unprivileged());
-            return std::ranges::find(data_members, member) - data_members.begin();
-        }();
-        static constexpr auto layout = layout_of<typename [:parent:], Endian, Packed>;
-        static constexpr auto offset = layout.offsets[member_index];
+        static constexpr auto [bit_offset, group_bit_width] = bit_field_group_width_of<Mem, Endian, Packed>;
         static constexpr auto member_width = bit_size_of(member);
         static constexpr auto member_type = type_of(member);
-        static constexpr auto group_length = align_bits_byte(offset.group_bit_width);
+        static constexpr auto group_length = align_bits_byte(group_bit_width);
         static_assert(is_sane_endian() && is_sane_endian(Endian),
                       "only little-endian and big-endian are supported");
-        const auto value = [&obj] -> typename [:member_type:] {
-            if constexpr (is_class_type(^^T)) {
-                static_assert(is_same_type(parent, ^^T),
-                              "obj must be of the same type as the parent of the member");
-                return obj.[:member:];
-            } else {
-                static_assert(is_same_type(member_type, ^^T),
-                              "obj must be of the same type as the member");
-                return obj;
-            }
-        }();
-        const auto underlying_value = [&value] {
+        static_assert(is_same_type(member_type, ^^T),
+                      "obj must be of the same type as the member");
+        const auto underlying_value = [&obj] {
             if constexpr (is_enum_type(member_type)) {
-                return std::to_underlying(value);
+                return std::to_underlying(obj);
             } else {
-                return value;
+                return obj;
             }
         }();
         std::size_t group_value = [&underlying_value] {
@@ -390,9 +395,9 @@ namespace bpt::details {
         }();
         static constexpr auto shift = [] {
             if constexpr (Endian == std::endian::little) {
-                return offset.bit_offset;
+                return bit_offset;
             } else if constexpr (Endian == std::endian::big) {
-                return group_length * CHAR_BIT - member_width - offset.bit_offset;
+                return group_length * CHAR_BIT - member_width - bit_offset;
             } else {
                 static_assert(false, "cannot reach here");
             }
@@ -406,25 +411,46 @@ namespace bpt::details {
         store_group_value<Endian, group_length>(raw.data(), write_value);
     }
 
+    // TODO: replace with non-trivial impl
+    template<member_offset_info Info, std::endian Endian, std::size_t Packed, typename T>
+    constexpr void read_sub_bits_group(T& obj, std::span<const std::byte> raw) noexcept {
+        static constexpr auto bit_field_group = Info.get_bit_field_group();
+        static constexpr auto data_members
+            = std::define_static_array(subobjects_of(^^T, unprivileged()));
+        template for (constexpr auto info : bit_field_group) {
+            static constexpr auto member = data_members[info.index];
+            typename [:type_of(member):] temp [[indeterminate]];
+            read_sub_bits<member, Endian, Packed>(temp, raw);
+            obj.[:member:] = temp;
+        }
+    }
+
+    // TODO: replace with non-trivial impl
+    template<member_offset_info Info, std::endian Endian, std::size_t Packed, typename T>
+    constexpr void write_sub_bits_group(const T& obj, std::span<std::byte> raw) noexcept {
+        static constexpr auto bit_field_group = Info.get_bit_field_group();
+        static constexpr auto data_members
+            = std::define_static_array(subobjects_of(^^T, unprivileged()));
+        template for (constexpr auto info : bit_field_group) {
+            static constexpr auto member = data_members[info.index];
+            typename [:type_of(member):] temp = obj.[:member:];
+            write_sub_bits<member, Endian, Packed>(temp, raw);
+        }
+    }
+
     template<std::endian Endian, std::size_t Packed, typename T>
     constexpr void read(T& value, std::span<const std::byte> raw) noexcept {
         static constexpr auto type = remove_cvref(^^T);
         static constexpr auto layout = layout_of<T, Endian, Packed>;
         if constexpr (is_class_type(type)) {
-            static constexpr auto data_members = std::define_static_array(
-                subobjects_of(type, unprivileged()));
-            static_assert(data_members.size() == layout.offsets.size(),
-                          "data member count mismatch");
-            template for (constexpr auto I : std::views::iota(0uz, data_members.size())) {
-                static constexpr auto member = data_members[I];
-                static constexpr auto offset = layout.offsets[I];
-                if constexpr (is_bit_field(member)) {
-                    static constexpr auto group_size = align_bits_byte(offset.group_bit_width);
-                    read_sub_bits<member, Endian, Packed>(value, raw.subspan(offset.offset, group_size));
+            template for (constexpr auto info : layout.offsets) {
+                if constexpr (info.group_bit_width > 0) {
+                    read_sub_bits_group<info, Endian, Packed>(value, raw.subspan(info.offset, align_bits_byte(info.group_bit_width)));
                 } else {
+                    static constexpr auto member = subobjects_of(type, unprivileged())[info.index];
                     using member_type = [:type_of(member):];
                     static constexpr auto member_size = layout_of<member_type, Endian, Packed>.total_size;
-                    read<Endian, Packed>(value.[:member:], raw.subspan(offset.offset, member_size));
+                    read<Endian, Packed>(value.[:member:], raw.subspan(info.offset, member_size));
                 }
             }
         } else if constexpr (is_bounded_array_type(type)) {
@@ -460,20 +486,14 @@ namespace bpt::details {
         static constexpr auto type = remove_cvref(^^T);
         static constexpr auto layout = layout_of<T, Endian, Packed>;
         if constexpr (is_class_type(type)) {
-            static constexpr auto data_members
-                = std::define_static_array(subobjects_of(type, unprivileged()));
-            static_assert(data_members.size() == layout.offsets.size(),
-                          "data member count mismatch");
-            template for (constexpr auto I : std::views::iota(0uz, data_members.size())) {
-                static constexpr auto member = data_members[I];
-                static constexpr auto offset = layout.offsets[I];
-                if constexpr (is_bit_field(member)) {
-                    static constexpr auto group_size = align_bits_byte(offset.group_bit_width);
-                    write_sub_bits<member, Endian, Packed>(value, raw.subspan(offset.offset, group_size));
+            template for (constexpr auto info : layout.offsets) {
+                if constexpr (info.group_bit_width > 0) {
+                    write_sub_bits_group<info, Endian, Packed>(value, raw.subspan(info.offset, align_bits_byte(info.group_bit_width)));
                 } else {
+                    static constexpr auto member = subobjects_of(type, unprivileged())[info.index];
                     using member_type = [:type_of(member):];
                     static constexpr auto member_size = layout_of<member_type, Endian, Packed>.total_size;
-                    write<Endian, Packed>(value.[:member:], raw.subspan(offset.offset, member_size));
+                    write<Endian, Packed>(value.[:member:], raw.subspan(info.offset, member_size));
                 }
             }
         } else if constexpr (is_bounded_array_type(type)) {
