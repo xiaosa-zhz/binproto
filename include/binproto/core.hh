@@ -24,23 +24,27 @@ using member_type = [:type_of(Mem):];
 template<typename Derived>
 class view_base
 {
-    using traits = bv_traits<Derived>;
+    using view_type = Derived;
+    using traits = bv_traits<view_type>;
     using value_type = traits::value_type;
     static constexpr auto endian = traits::endian;
     static constexpr auto packed = traits::packed;
 
     template<std::meta::info Mem>
-    using rebind_view = traits::template rebind<member_type<Mem>>;
+    using rebind_mem_view = traits::template rebind<member_type<Mem>>;
+
+    template<typename T>
+    using rebind_type_view = traits::template rebind<T>;
 
 public:
     template<std::meta::info Mem>
         requires details::member_accessible<value_type, Mem> && (!is_bit_field(Mem))
-    [[nodiscard]] constexpr rebind_view<Mem> subview() const noexcept {
+    [[nodiscard]] constexpr rebind_mem_view<Mem> subview() const noexcept {
         static constexpr auto offset
             = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
         static constexpr auto member_size
             = details::layout_of<member_type<Mem>, endian, packed>.total_size;
-        const auto raw = ((const Derived*)this)->buffer();
+        const auto raw = ((const view_type*)this)->buffer();
         if (raw.size() < offset + member_size) {
             [[unlikely]] return {};
         }
@@ -53,7 +57,7 @@ public:
     }
 
     [[nodiscard]] constexpr auto consumed() const noexcept {
-        auto raw = ((const Derived*)this)->buffer();
+        auto raw = ((const view_type*)this)->buffer();
         if (raw.size() < wire_size()) {
             [[unlikely]] return decltype(raw){};
         }
@@ -61,16 +65,33 @@ public:
     }
 
     [[nodiscard]] constexpr auto remained() const noexcept {
-        auto raw = ((const Derived*)this)->buffer();
+        auto raw = ((const view_type*)this)->buffer();
         if (raw.size() < wire_size()) {
             [[unlikely]] return decltype(raw){};
         }
         return raw.subspan(wire_size());
     }
 
+    [[nodiscard]] constexpr view_type consumed_view() const noexcept {
+        auto raw = ((const view_type*)this)->buffer();
+        if (raw.size() < wire_size()) {
+            [[unlikely]] return {};
+        }
+        return raw.subspan(0, wire_size());
+    }
+
+    template<typename Succeeded>
+    [[nodiscard]] constexpr rebind_type_view<Succeeded> remained_view() const noexcept {
+        auto raw = ((const view_type*)this)->buffer();
+        if (raw.size() < wire_size()) {
+            [[unlikely]] return {};
+        }
+        return raw.subspan(wire_size());
+    }
+
     [[nodiscard]]
     constexpr bool read(value_type& value) const noexcept {
-        const auto raw = ((const Derived*)this)->buffer();
+        const auto raw = ((const view_type*)this)->buffer();
         if (raw.size() < wire_size()) {
             [[unlikely]] return false;
         }
@@ -86,7 +107,7 @@ public:
                 = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
             static constexpr std::size_t group_size = details::align_bits_byte(
                 details::bit_field_group_width_of<Mem, endian, packed>.group_bit_width);
-            const auto raw = ((const Derived*)this)->buffer();
+            const auto raw = ((const view_type*)this)->buffer();
             if (raw.size() < offset + group_size) {
                 [[unlikely]] return false;
             }
@@ -122,6 +143,8 @@ public:
     using base::wire_size;
     using base::consumed;
     using base::remained;
+    using base::consumed_view;
+    using base::remained_view;
     using base::read;
 
     [[nodiscard]]
@@ -184,6 +207,8 @@ public:
     using base::wire_size;
     using base::consumed;
     using base::remained;
+    using base::consumed_view;
+    using base::remained_view;
     using base::read;
 
     [[nodiscard]]
