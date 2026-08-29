@@ -483,8 +483,8 @@ namespace bpt::details {
                 = bit_field_shift<Endian>(group_length, member_width, info.bit_offset);
             const group_type raw_bits = static_cast<group_type>(
                 (group_value >> shift) & low_bits_mask<group_type, member_width>());
-            obj.[:member:] = to_member_value<member>(static_cast<
-                minimal_unsigned_type<align_bits_byte(member_width)>>(raw_bits));
+            using rep_type = minimal_unsigned_type<align_bits_byte(member_width)>;
+            obj.[:member:] = to_member_value<member>(static_cast<rep_type>(raw_bits));
         }
     }
 
@@ -516,10 +516,11 @@ namespace bpt::details {
             static constexpr auto member_width = bit_size_of(member);
             static constexpr std::size_t shift
                 = bit_field_shift<Endian>(group_length, member_width, info.bit_offset);
-            static constexpr group_type member_mask = low_bits_mask<group_type, member_width>();
+            static constexpr auto member_mask = low_bits_mask<group_type, member_width>();
+            const auto member_bits = member_value_to_bits<member>(obj.[:member:]);
             group_value &= static_cast<group_type>(~(member_mask << shift));
             group_value |= static_cast<group_type>(
-                (static_cast<group_type>(member_value_to_bits<member>(obj.[:member:])) & member_mask) << shift
+                (static_cast<group_type>(member_bits) & member_mask) << shift
             );
         }
         store_group_value<Endian, group_length>(raw.data(), group_value);
@@ -532,7 +533,8 @@ namespace bpt::details {
         if constexpr (is_class_type(type)) {
             template for (constexpr auto info : layout.offsets) {
                 if constexpr (info.group_bit_width > 0) {
-                    read_sub_bits_group<info, Endian, Packed>(value, raw.subspan(info.offset, align_bits_byte(info.group_bit_width)));
+                    read_sub_bits_group<info, Endian, Packed>(
+                        value, raw.subspan(info.offset, align_bits_byte(info.group_bit_width)));
                 } else {
                     static constexpr auto member = subobjects_of(type, unprivileged())[info.index];
                     using member_type = [:type_of(member):];
@@ -575,7 +577,8 @@ namespace bpt::details {
         if constexpr (is_class_type(type)) {
             template for (constexpr auto info : layout.offsets) {
                 if constexpr (info.group_bit_width > 0) {
-                    write_sub_bits_group<info, Endian, Packed>(value, raw.subspan(info.offset, align_bits_byte(info.group_bit_width)));
+                    write_sub_bits_group<info, Endian, Packed>(
+                        value, raw.subspan(info.offset, align_bits_byte(info.group_bit_width)));
                 } else {
                     static constexpr auto member = subobjects_of(type, unprivileged())[info.index];
                     using member_type = [:type_of(member):];
