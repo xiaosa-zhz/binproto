@@ -81,7 +81,7 @@ namespace bpt::details {
         std::size_t current_offset = 0;
         std::size_t current_bit_offset = 0;
         std::vector<bit_field_info> bit_field_group;
-        auto accumulate_bitfield_group = [&](std::meta::info member = {}) {
+        auto accumulate_bit_field_group = [&](std::meta::info member = {}) {
             auto finalize_group = [&]() {
                 if (!bit_field_group.empty()) {
                     auto group_data = std::define_static_array(bit_field_group);
@@ -142,10 +142,10 @@ namespace bpt::details {
                     member);
             }
             if (is_bit_field(member)) {
-                accumulate_bitfield_group(member);
+                accumulate_bit_field_group(member);
                 continue;
             }
-            accumulate_bitfield_group();
+            accumulate_bit_field_group();
             // generate normal member offset info
             const std::size_t natural_align = alignment_of(member);
             const std::size_t effective_align = std::ranges::min(required_align, natural_align);
@@ -156,7 +156,7 @@ namespace bpt::details {
             current_offset += subobj_layout.total_size;
             ++index;
         }
-        accumulate_bitfield_group();
+        accumulate_bit_field_group();
         const std::size_t struct_align = std::ranges::min(required_align, alignment_of(type));
         result.offsets = std::define_static_array(offsets);
         result.total_size = align_to(current_offset, struct_align);
