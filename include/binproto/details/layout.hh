@@ -453,9 +453,8 @@ namespace bpt::details {
             = std::define_static_array(subobjects_of(^^T, unprivileged()));
         static_assert(is_sane_endian() && is_sane_endian(Endian),
                       "only little-endian and big-endian are supported");
-        constexpr std::size_t group_length = align_bits_byte(Info.group_bit_width);
-        const std::size_t group_value
-            = load_group_value<Endian, group_length>(raw.data());
+        static constexpr std::size_t group_length = align_bits_byte(Info.group_bit_width);
+        const std::size_t group_value = load_group_value<Endian, group_length>(raw.data());
         template for (constexpr auto info : bit_field_group) {
             static constexpr auto member = data_members[info.index];
             static constexpr auto member_width = bit_size_of(member);
@@ -473,8 +472,21 @@ namespace bpt::details {
             = std::define_static_array(subobjects_of(^^T, unprivileged()));
         static_assert(is_sane_endian() && is_sane_endian(Endian),
                       "only little-endian and big-endian are supported");
-        constexpr std::size_t group_length = align_bits_byte(Info.group_bit_width);
-        std::size_t group_value = load_group_value<Endian, group_length>(raw.data());
+        static constexpr std::size_t group_length = align_bits_byte(Info.group_bit_width);
+        static constexpr bool full_coverage = [] consteval {
+            if (Info.group_bit_width % CHAR_BIT != 0) {
+                return false;
+            }
+            std::size_t total = 0;
+            for (const auto info : bit_field_group) {
+                total += bit_size_of(data_members[info.index]);
+            }
+            return total == Info.group_bit_width;
+        }();
+        std::size_t group_value = 0;
+        if constexpr (!full_coverage) {
+            group_value = load_group_value<Endian, group_length>(raw.data());
+        }
         template for (constexpr auto info : bit_field_group) {
             static constexpr auto member = data_members[info.index];
             static constexpr auto member_width = bit_size_of(member);
