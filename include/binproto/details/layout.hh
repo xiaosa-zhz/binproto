@@ -82,7 +82,7 @@ namespace bpt::details {
         std::size_t current_bit_offset = 0;
         std::vector<bit_field_info> bit_field_group;
         auto accumulate_bit_field_group = [&](std::meta::info member = {}) {
-            auto finalize_group = [&]() {
+            auto finalize_group = [&] {
                 if (!bit_field_group.empty()) {
                     auto group_data = std::define_static_array(bit_field_group);
                     offsets.push_back({
