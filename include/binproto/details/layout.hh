@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <climits>
+#include <cstring>
 #include <limits>
 #include <meta>
 #include <type_traits>
@@ -257,32 +258,71 @@ namespace bpt::details {
         throw std::meta::exception("member is not a bit-field or part of a bit-field group", member);
     }
 
+    template<std::size_t N>
+    using minimal_unsigned_type = [:[] consteval {
+        if constexpr (N <= (8 / CHAR_BIT)) {
+            return ^^decltype(std::uint8_t{});
+        } else if constexpr (N <= (16 / CHAR_BIT)) {
+            return ^^decltype(std::uint16_t{});
+        } else if constexpr (N <= (32 / CHAR_BIT)) {
+            return ^^decltype(std::uint32_t{});
+        } else if constexpr (N <= (64 / CHAR_BIT)) {
+            return ^^decltype(std::uint64_t{});
+        } else {
+            return ^^decltype(std::size_t{});
+        }
+    }():];
+
     template<std::endian Endian, std::size_t N>
     constexpr std::size_t load_group_value(const std::byte* raw) noexcept {
-        std::size_t value = 0;
-        for (auto i = 0uz; i < N; ++i) {
-            const auto byte = std::to_integer<std::size_t>(raw[i]);
-            if constexpr (Endian == std::endian::little) {
-                value |= byte << (i * CHAR_BIT);
-            } else if constexpr (Endian == std::endian::big) {
-                value = (value << CHAR_BIT) | byte;
-            } else {
-                static_assert(false, "cannot reach here");
+        static_assert(N > 0, "group size must be greater than 0");
+        if consteval {
+            std::size_t value = 0;
+            for (auto i = 0uz; i < N; ++i) {
+                const auto byte = std::to_integer<std::size_t>(raw[i]);
+                if constexpr (Endian == std::endian::little) {
+                    value |= byte << (i * CHAR_BIT);
+                } else if constexpr (Endian == std::endian::big) {
+                    value = (value << CHAR_BIT) | byte;
+                } else {
+                    static_assert(false, "cannot reach here");
+                }
             }
+            return value;
+        } else {
+            minimal_unsigned_type<N> value = 0;
+            std::memcpy(&value, raw, N);
+            if constexpr (Endian != std::endian::native) {
+                value = std::byteswap(value);
+            }
+            if constexpr (Endian == std::endian::big) {
+                value >>= ((sizeof(minimal_unsigned_type<N>) - N) * CHAR_BIT);
+            }
+            return value;
         }
-        return value;
     }
 
     template<std::endian Endian, std::size_t N>
     constexpr void store_group_value(std::byte* raw, std::size_t value) noexcept {
-        for (auto i = 0uz; i < N; ++i) {
-            if constexpr (Endian == std::endian::little) {
-                raw[i] = static_cast<std::byte>(value >> (i * CHAR_BIT));
-            } else if constexpr (Endian == std::endian::big) {
-                raw[N - 1 - i] = static_cast<std::byte>(value >> (i * CHAR_BIT));
-            } else {
-                static_assert(false, "cannot reach here");
+        if consteval {
+            for (auto i = 0uz; i < N; ++i) {
+                if constexpr (Endian == std::endian::little) {
+                    raw[i] = static_cast<std::byte>(value >> (i * CHAR_BIT));
+                } else if constexpr (Endian == std::endian::big) {
+                    raw[N - 1 - i] = static_cast<std::byte>(value >> (i * CHAR_BIT));
+                } else {
+                    static_assert(false, "cannot reach here");
+                }
             }
+        } else {
+            auto temp = static_cast<minimal_unsigned_type<N>>(value);
+            if constexpr (Endian == std::endian::big) {
+                temp <<= ((sizeof(minimal_unsigned_type<N>) - N) * CHAR_BIT);
+            }
+            if constexpr (Endian != std::endian::native) {
+                temp = std::byteswap(temp);
+            }
+            std::memcpy(raw, &temp, N);
         }
     }
 
@@ -351,7 +391,7 @@ namespace bpt::details {
     }
 
     template<std::meta::info Member, typename T>
-    constexpr std::size_t member_value_to_bits(const T& value) noexcept {
+    constexpr std::size_t member_value_to_bits(T value) noexcept {
         static constexpr auto member_type = type_of(Member);
         static_assert(is_same_type(member_type, ^^T),
                       "value must be of the same type as the member");

@@ -42,7 +42,7 @@ public:
             = details::layout_of<member_type<Mem>, endian, packed>.total_size;
         const auto raw = ((const Derived*)this)->buffer();
         if (raw.size() < offset + member_size) {
-            return {};
+            [[unlikely]] return {};
         }
         return raw.subspan(offset, member_size);
     }
@@ -55,7 +55,7 @@ public:
     [[nodiscard]] constexpr auto consumed() const noexcept {
         auto raw = ((const Derived*)this)->buffer();
         if (raw.size() < wire_size()) {
-            return decltype(raw){};
+            [[unlikely]] return decltype(raw){};
         }
         return raw.subspan(0, wire_size());
     }
@@ -63,7 +63,7 @@ public:
     [[nodiscard]] constexpr auto remained() const noexcept {
         auto raw = ((const Derived*)this)->buffer();
         if (raw.size() < wire_size()) {
-            return decltype(raw){};
+            [[unlikely]] return decltype(raw){};
         }
         return raw.subspan(wire_size());
     }
@@ -72,7 +72,7 @@ public:
     constexpr bool read(value_type& value) const noexcept {
         const auto raw = ((const Derived*)this)->buffer();
         if (raw.size() < wire_size()) {
-            return false;
+            [[unlikely]] return false;
         }
         details::read<endian, packed>(value, raw.subspan(0, wire_size()));
         return true;
@@ -88,7 +88,7 @@ public:
                 details::bit_field_group_width_of<Mem, endian, packed>.group_bit_width);
             const auto raw = ((const Derived*)this)->buffer();
             if (raw.size() < offset + group_size) {
-                return false;
+                [[unlikely]] return false;
             }
             details::read_sub_bits<Mem, endian, packed>(value, raw.subspan(offset, group_size));
             return true;
@@ -127,7 +127,7 @@ public:
     [[nodiscard]]
     constexpr bool write(const value_type& value) const noexcept {
         if (raw.size() < wire_size()) {
-            return false;
+            [[unlikely]] return false;
         }
         details::write<endian, packed>(value, raw.subspan(0, wire_size()));
         return true;
@@ -142,7 +142,7 @@ public:
             static constexpr std::size_t group_size = details::align_bits_byte(
                 details::bit_field_group_width_of<Mem, endian, packed>.group_bit_width);
             if (raw.size() < offset + group_size) {
-                return false;
+                [[unlikely]] return false;
             }
             details::write_sub_bits<Mem, endian, packed>(value, raw.subspan(offset, group_size));
             return true;
