@@ -273,37 +273,43 @@ namespace bpt::details {
         }
     }():];
 
+    template<typename T, std::size_t N>
+    constexpr T low_bits_mask() noexcept {
+        static_assert(N <= std::numeric_limits<T>::digits);
+        return static_cast<T>(std::numeric_limits<T>::max() >> (std::numeric_limits<T>::digits - N));
+    }
+
     template<std::endian Endian, std::size_t N>
-    constexpr std::size_t load_group_value(const std::byte* raw) noexcept {
+    constexpr minimal_unsigned_type<N> load_group_value(const std::byte* raw) noexcept {
+        using value_type = minimal_unsigned_type<N>;
         static_assert(N > 0, "group size must be greater than 0");
+        value_type value = 0;
         if consteval {
-            std::size_t value = 0;
             for (auto i = 0uz; i < N; ++i) {
-                const auto byte = std::to_integer<std::size_t>(raw[i]);
+                const auto byte = std::to_integer<value_type>(raw[i]);
                 if constexpr (Endian == std::endian::little) {
-                    value |= byte << (i * CHAR_BIT);
+                    value = static_cast<value_type>(value | (byte << (i * CHAR_BIT)));
                 } else if constexpr (Endian == std::endian::big) {
-                    value = (value << CHAR_BIT) | byte;
+                    value = static_cast<value_type>((value << CHAR_BIT) | byte);
                 } else {
                     static_assert(false, "cannot reach here");
                 }
             }
-            return value;
         } else {
-            minimal_unsigned_type<N> value = 0;
             std::memcpy(&value, raw, N);
             if constexpr (Endian != std::endian::native) {
                 value = std::byteswap(value);
             }
             if constexpr (Endian == std::endian::big) {
-                value >>= ((sizeof(minimal_unsigned_type<N>) - N) * CHAR_BIT);
+                value >>= ((sizeof(value_type) - N) * CHAR_BIT);
             }
-            return value;
         }
+        return value;
     }
 
     template<std::endian Endian, std::size_t N>
-    constexpr void store_group_value(std::byte* raw, std::size_t value) noexcept {
+    constexpr void store_group_value(std::byte* raw, minimal_unsigned_type<N> value) noexcept {
+        using value_type = minimal_unsigned_type<N>;
         if consteval {
             for (auto i = 0uz; i < N; ++i) {
                 if constexpr (Endian == std::endian::little) {
@@ -315,14 +321,13 @@ namespace bpt::details {
                 }
             }
         } else {
-            auto temp = static_cast<minimal_unsigned_type<N>>(value);
             if constexpr (Endian == std::endian::big) {
-                temp <<= ((sizeof(minimal_unsigned_type<N>) - N) * CHAR_BIT);
+                value <<= ((sizeof(value_type) - N) * CHAR_BIT);
             }
             if constexpr (Endian != std::endian::native) {
-                temp = std::byteswap(temp);
+                value = std::byteswap(value);
             }
-            std::memcpy(raw, &temp, N);
+            std::memcpy(raw, &value, N);
         }
     }
 
@@ -366,19 +371,26 @@ namespace bpt::details {
         }
     }
 
-    template<std::meta::info Member>
-    constexpr auto to_member_value(std::size_t raw_bits) noexcept {
+    template<std::meta::info Member, std::size_t N = align_bits_byte(bit_size_of(Member))>
+    constexpr auto to_member_value(minimal_unsigned_type<N> raw_bits) noexcept {
         static constexpr auto member_width = bit_size_of(Member);
         static constexpr auto member_type = type_of(Member);
         static constexpr auto value_info = is_enum_type(member_type)
             ? underlying_type(member_type)
             : member_type;
+        using raw_type = minimal_unsigned_type<N>;
         auto value = [&raw_bits] {
             if constexpr (is_signed_type(value_info)) {
                 // sign-extend
-                raw_bits |= ((0uz - (raw_bits >> (member_width - 1))) & ~((1uz << member_width) - 1));
+                static constexpr auto mask = low_bits_mask<raw_type, member_width>();
+                const raw_type fill = static_cast<raw_type>(
+                    raw_type{0} - static_cast<raw_type>(raw_bits >> (member_width - 1))
+                );
+                const raw_type extended = static_cast<raw_type>(
+                    raw_bits | (fill & static_cast<raw_type>(~mask))
+                );
                 return static_cast<typename [:value_info:]>(
-                    std::bit_cast<std::make_signed_t<std::size_t>>(raw_bits));
+                    std::bit_cast<std::make_signed_t<raw_type>>(extended));
             } else {
                 return static_cast<typename [:value_info:]>(raw_bits);
             }
@@ -391,10 +403,13 @@ namespace bpt::details {
     }
 
     template<std::meta::info Member, typename T>
-    constexpr std::size_t member_value_to_bits(T value) noexcept {
+    constexpr auto member_value_to_bits(T value) noexcept {
         static constexpr auto member_type = type_of(Member);
+        static constexpr auto member_width = bit_size_of(Member);
+        using raw_type = minimal_unsigned_type<align_bits_byte(member_width)>;
         static_assert(is_same_type(member_type, ^^T),
                       "value must be of the same type as the member");
+        static constexpr auto mask = low_bits_mask<raw_type, member_width>();
         const auto underlying = [&value] {
             if constexpr (is_enum_type(member_type)) {
                 return std::to_underlying(value);
@@ -402,7 +417,7 @@ namespace bpt::details {
                 return value;
             }
         }();
-        return static_cast<std::size_t>(underlying);
+        return static_cast<raw_type>(static_cast<raw_type>(underlying) & mask);
     }
 
     template<std::meta::info Mem, std::endian Endian, std::size_t Packed, typename T>
@@ -419,10 +434,13 @@ namespace bpt::details {
                       "obj must be of the same type as the member");
         static constexpr std::size_t shift
             = bit_field_shift<Endian>(group_length, member_width, bit_offset);
-        const std::size_t raw_bits
-            = (load_group_value<Endian, group_length>(raw.data()) >> shift)
-            & ((1uz << member_width) - 1);
-        obj = to_member_value<member>(raw_bits);
+        using group_type = minimal_unsigned_type<group_length>;
+        static constexpr auto mask = low_bits_mask<group_type, member_width>();
+        const group_type raw_bits = static_cast<group_type>(
+            (load_group_value<Endian, group_length>(raw.data()) >> shift) & mask
+        );
+        obj = to_member_value<member>(
+            static_cast<minimal_unsigned_type<align_bits_byte(member_width)>>(raw_bits));
     }
 
     template<std::meta::info Mem, std::endian Endian, std::size_t Packed, typename T>
@@ -439,10 +457,12 @@ namespace bpt::details {
                       "obj must be of the same type as the member");
         static constexpr std::size_t shift
             = bit_field_shift<Endian>(group_length, member_width, bit_offset);
-        static constexpr std::size_t member_mask = (1uz << member_width) - 1;
-        std::size_t group_value = load_group_value<Endian, group_length>(raw.data());
-        group_value &= ~(member_mask << shift);
-        group_value |= (member_value_to_bits<member>(obj) & member_mask) << shift;
+        using group_type = minimal_unsigned_type<group_length>;
+        static constexpr group_type member_mask = low_bits_mask<group_type, member_width>();
+        group_type group_value = load_group_value<Endian, group_length>(raw.data());
+        group_value &= static_cast<group_type>(~(member_mask << shift));
+        group_value |= static_cast<group_type>(
+            (static_cast<group_type>(member_value_to_bits<member>(obj)) & member_mask) << shift);
         store_group_value<Endian, group_length>(raw.data(), group_value);
     }
 
@@ -454,14 +474,17 @@ namespace bpt::details {
         static_assert(is_sane_endian() && is_sane_endian(Endian),
                       "only little-endian and big-endian are supported");
         static constexpr std::size_t group_length = align_bits_byte(Info.group_bit_width);
-        const std::size_t group_value = load_group_value<Endian, group_length>(raw.data());
+        using group_type = minimal_unsigned_type<group_length>;
+        const group_type group_value = load_group_value<Endian, group_length>(raw.data());
         template for (constexpr auto info : bit_field_group) {
             static constexpr auto member = data_members[info.index];
             static constexpr auto member_width = bit_size_of(member);
             static constexpr std::size_t shift
                 = bit_field_shift<Endian>(group_length, member_width, info.bit_offset);
-            const std::size_t raw_bits = (group_value >> shift) & ((1uz << member_width) - 1);
-            obj.[:member:] = to_member_value<member>(raw_bits);
+            const group_type raw_bits = static_cast<group_type>(
+                (group_value >> shift) & low_bits_mask<group_type, member_width>());
+            obj.[:member:] = to_member_value<member>(static_cast<
+                minimal_unsigned_type<align_bits_byte(member_width)>>(raw_bits));
         }
     }
 
@@ -483,7 +506,8 @@ namespace bpt::details {
             }
             return total == Info.group_bit_width;
         }();
-        std::size_t group_value = 0;
+        using group_type = minimal_unsigned_type<group_length>;
+        group_type group_value = 0;
         if constexpr (!full_coverage) {
             group_value = load_group_value<Endian, group_length>(raw.data());
         }
@@ -492,9 +516,11 @@ namespace bpt::details {
             static constexpr auto member_width = bit_size_of(member);
             static constexpr std::size_t shift
                 = bit_field_shift<Endian>(group_length, member_width, info.bit_offset);
-            static constexpr std::size_t member_mask = (1uz << member_width) - 1;
-            group_value &= ~(member_mask << shift);
-            group_value |= (member_value_to_bits<member>(obj.[:member:]) & member_mask) << shift;
+            static constexpr group_type member_mask = low_bits_mask<group_type, member_width>();
+            group_value &= static_cast<group_type>(~(member_mask << shift));
+            group_value |= static_cast<group_type>(
+                (static_cast<group_type>(member_value_to_bits<member>(obj.[:member:])) & member_mask) << shift
+            );
         }
         store_group_value<Endian, group_length>(raw.data(), group_value);
     }
