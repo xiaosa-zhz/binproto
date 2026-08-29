@@ -240,28 +240,30 @@ private:
 
 template<typename ValueType, std::size_t Packed = 1uz>
 consteval std::span<const std::meta::member_offset> layout() noexcept {
-    auto offsets = details::layout_of<ValueType, Packed>.offsets
+    return std::define_static_array(
+        details::layout_of<ValueType, Packed>.offsets
         | std::views::transform([](const details::member_offset_info& info) {
             if (info.group_bit_width > 0) {
-                return info.get_bit_field_group()
+                return std::define_static_array(
+                    info.get_bit_field_group()
                     | std::views::transform([&info](const details::bit_field_info& bit_info) {
                         return std::meta::member_offset{
                             .bytes = static_cast<std::ptrdiff_t>(info.offset + (bit_info.bit_offset / CHAR_BIT)),
                             .bits = static_cast<std::ptrdiff_t>(bit_info.bit_offset % CHAR_BIT),
                         };
                     })
-                    | std::ranges::to<std::vector<std::meta::member_offset>>();
+                );
             } else {
-                return std::vector<std::meta::member_offset>{
-                    {
+                return std::define_static_array(
+                    std::views::single(std::meta::member_offset{
                         .bytes = static_cast<std::ptrdiff_t>(info.offset),
                         .bits = 0,
-                    }
-                };
+                    })
+                ).subspan(0, 1);
             }
         })
-        | std::ranges::to<std::vector>();
-    return std::define_static_array(offsets | std::views::join);
+        | std::views::join
+    );
 }
 
 } // namespace bpt
