@@ -90,7 +90,7 @@ namespace bpt::details {
                         .offset = current_offset,
                         .group_bit_width = current_bit_offset,
                         .bit_field_group_data = group_data.data(),
-                        .bit_field_group_size = group_data.size()
+                        .bit_field_group_size = group_data.size(),
                     });
                     current_offset += align_bits_byte(current_bit_offset);
                     current_bit_offset = 0;
@@ -127,10 +127,7 @@ namespace bpt::details {
                 current_offset = align_to(current_offset, effective_align);
             }
             if (has_identifier(member)) {
-                bit_field_group.push_back({
-                    .index = index,
-                    .bit_offset = current_bit_offset
-                });
+                bit_field_group.push_back({ .index = index, .bit_offset = current_bit_offset });
                 ++index;
             }
             current_bit_offset += bit_width;
@@ -238,10 +235,10 @@ namespace bpt::details {
         std::size_t group_bit_width = 0;
     };
 
-    consteval bit_field_desc get_bit_field_group_width(std::meta::info member,
+    consteval bit_field_desc get_bit_field_group_width(std::meta::info mem,
                                                        std::endian endian,
                                                        std::size_t packed) {
-        const auto parent = parent_of(member);
+        const auto parent = parent_of(mem);
         const auto members = subobjects_of(parent, unprivileged());
         const auto layout = generate_member_offset_table(parent, endian, packed);
         for (auto offset : layout.offsets) {
@@ -250,12 +247,12 @@ namespace bpt::details {
             }
             const auto group = offset.get_bit_field_group();
             for (auto info : group) {
-                if (members[info.index] == member) {
+                if (members[info.index] == mem) {
                     return { .bit_offset = info.bit_offset, .group_bit_width = offset.group_bit_width };
                 }
             }
         }
-        throw std::meta::exception("member is not a bit-field or part of a bit-field group", member);
+        throw std::meta::exception("member is not a bit-field or part of a bit-field group", mem);
     }
 
     template<std::size_t NBits>
@@ -371,10 +368,10 @@ namespace bpt::details {
         }
     }
 
-    template<std::meta::info Member, std::size_t N = bit_size_of(Member)>
+    template<std::meta::info Mem, std::size_t N = bit_size_of(Mem)>
     constexpr auto to_member_value(minimal_unsigned_type<N> raw_bits) noexcept {
-        static constexpr auto member_width = bit_size_of(Member);
-        static constexpr auto member_type = type_of(Member);
+        static constexpr auto member_width = bit_size_of(Mem);
+        static constexpr auto member_type = type_of(Mem);
         static constexpr auto value_info = is_enum_type(member_type)
             ? underlying_type(member_type)
             : member_type;
@@ -402,10 +399,10 @@ namespace bpt::details {
         }
     }
 
-    template<std::meta::info Member, typename T>
+    template<std::meta::info Mem, typename T>
     constexpr auto member_value_to_bits(T value) noexcept {
-        static constexpr auto member_type = type_of(Member);
-        static constexpr auto member_width = bit_size_of(Member);
+        static constexpr auto member_type = type_of(Mem);
+        static constexpr auto member_width = bit_size_of(Mem);
         using raw_type = minimal_unsigned_type<member_width>;
         static_assert(is_same_type(member_type, ^^T),
                       "value must be of the same type as the member");
