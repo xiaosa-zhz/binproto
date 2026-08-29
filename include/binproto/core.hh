@@ -5,6 +5,51 @@
 
 namespace bpt {
 
+template<typename ValueType, std::size_t Packed = 1uz>
+consteval std::span<const std::meta::member_offset> layout() noexcept {
+    return std::define_static_array(
+        details::layout_of<ValueType, Packed>.offsets
+        | std::views::transform([](const details::member_offset_info& info) {
+            if (info.group_bit_width > 0) {
+                return std::define_static_array(
+                    info.get_bit_field_group()
+                    | std::views::transform([&info](const details::bit_field_info& bit_info) {
+                        return std::meta::member_offset{
+                            .bytes = static_cast<std::ptrdiff_t>(info.offset + (bit_info.bit_offset / CHAR_BIT)),
+                            .bits = static_cast<std::ptrdiff_t>(bit_info.bit_offset % CHAR_BIT),
+                        };
+                    })
+                );
+            } else {
+                return std::define_static_array(
+                    std::views::single(std::meta::member_offset{
+                        .bytes = static_cast<std::ptrdiff_t>(info.offset),
+                        .bits = 0,
+                    })
+                ).subspan(0, 1);
+            }
+        })
+        | std::views::join
+    );
+}
+
+template<std::meta::info Mem, typename ValueType, std::size_t Packed = 1uz>
+    requires details::member_accessible<ValueType, Mem>
+consteval std::meta::member_offset offset_of() noexcept {
+    static constexpr auto group_offset
+        = details::get_overall_offset_of_member(^^ValueType, Packed, Mem);
+    if constexpr (is_bit_field(Mem)) {
+        static constexpr auto bit_offset
+            = details::bit_field_group_desc_of<Mem, Packed>.bit_offset;
+        return {
+            .bytes = static_cast<std::ptrdiff_t>(group_offset + (bit_offset / CHAR_BIT)),
+            .bits = static_cast<std::ptrdiff_t>(bit_offset % CHAR_BIT),
+        };
+    } else {
+        return { .bytes = static_cast<std::ptrdiff_t>(group_offset), .bits = 0 };
+    }
+}
+
 namespace details {
 
 template<typename View>
@@ -46,18 +91,7 @@ public:
     template<std::meta::info Mem>
         requires details::member_accessible<value_type, Mem>
     [[nodiscard]] static consteval std::meta::member_offset offset_of() noexcept {
-        static constexpr auto group_offset
-            = details::get_overall_offset_of_member(^^value_type, packed, Mem);
-        if constexpr (is_bit_field(Mem)) {
-            static constexpr auto bit_offset
-                = details::bit_field_group_desc_of<Mem, packed>.bit_offset;
-            return {
-                .bytes = static_cast<std::ptrdiff_t>(group_offset + (bit_offset / CHAR_BIT)),
-                .bits = static_cast<std::ptrdiff_t>(bit_offset % CHAR_BIT),
-            };
-        } else {
-            return { .bytes = static_cast<std::ptrdiff_t>(group_offset), .bits = 0 };
-        }
+        return bpt::offset_of<Mem, value_type, packed>();
     }
 
     template<std::meta::info Mem>
@@ -237,33 +271,5 @@ public:
 private:
     buffer_type raw;
 };
-
-template<typename ValueType, std::size_t Packed = 1uz>
-consteval std::span<const std::meta::member_offset> layout() noexcept {
-    return std::define_static_array(
-        details::layout_of<ValueType, Packed>.offsets
-        | std::views::transform([](const details::member_offset_info& info) {
-            if (info.group_bit_width > 0) {
-                return std::define_static_array(
-                    info.get_bit_field_group()
-                    | std::views::transform([&info](const details::bit_field_info& bit_info) {
-                        return std::meta::member_offset{
-                            .bytes = static_cast<std::ptrdiff_t>(info.offset + (bit_info.bit_offset / CHAR_BIT)),
-                            .bits = static_cast<std::ptrdiff_t>(bit_info.bit_offset % CHAR_BIT),
-                        };
-                    })
-                );
-            } else {
-                return std::define_static_array(
-                    std::views::single(std::meta::member_offset{
-                        .bytes = static_cast<std::ptrdiff_t>(info.offset),
-                        .bits = 0,
-                    })
-                ).subspan(0, 1);
-            }
-        })
-        | std::views::join
-    );
-}
 
 } // namespace bpt
