@@ -40,17 +40,17 @@ class view_base
 public:
     [[nodiscard]]
     static consteval std::size_t wire_size() noexcept {
-        return details::layout_of<value_type, endian, packed>.total_size;
+        return details::layout_of<value_type, packed>.total_size;
     }
 
     template<std::meta::info Mem>
         requires details::member_accessible<value_type, Mem>
     [[nodiscard]] static consteval std::meta::member_offset offset_of() noexcept {
         static constexpr auto group_offset
-            = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
+            = details::get_overall_offset_of_member(^^value_type, packed, Mem);
         if constexpr (is_bit_field(Mem)) {
             static constexpr auto bit_offset
-                = details::bit_field_group_desc_of<Mem, endian, packed>.bit_offset;
+                = details::bit_field_group_desc_of<Mem, packed>.bit_offset;
             return {
                 .bytes = static_cast<std::ptrdiff_t>(group_offset + (bit_offset / CHAR_BIT)),
                 .bits = static_cast<std::ptrdiff_t>(bit_offset % CHAR_BIT),
@@ -64,9 +64,9 @@ public:
         requires details::member_accessible<value_type, Mem> && (!is_bit_field(Mem))
     [[nodiscard]] constexpr rebind_mem_view<Mem> subview() const noexcept {
         static constexpr auto offset
-            = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
+            = details::get_overall_offset_of_member(^^value_type, packed, Mem);
         static constexpr auto member_size
-            = details::layout_of<member_type<Mem>, endian, packed>.total_size;
+            = details::layout_of<member_type<Mem>, packed>.total_size;
         const auto raw = ((const view_type*)this)->buffer();
         if (raw.size() < offset + member_size) {
             [[unlikely]] return {};
@@ -122,9 +122,9 @@ public:
     [[nodiscard]] constexpr bool read(member_type<Mem>& value) const noexcept {
         if constexpr (is_bit_field(Mem)) {
             static constexpr std::size_t offset
-                = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
+                = details::get_overall_offset_of_member(^^value_type, packed, Mem);
             static constexpr std::size_t group_size = details::align_bits_byte(
-                details::bit_field_group_desc_of<Mem, endian, packed>.group_bit_width);
+                details::bit_field_group_desc_of<Mem, packed>.group_bit_width);
             const auto raw = ((const view_type*)this)->buffer();
             if (raw.size() < offset + group_size) {
                 [[unlikely]] return false;
@@ -180,9 +180,9 @@ public:
     [[nodiscard]] constexpr bool write(typename [:add_const(type_of(Mem)):]& value) const noexcept {
         if constexpr (is_bit_field(Mem)) {
             static constexpr std::size_t offset
-                = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
+                = details::get_overall_offset_of_member(^^value_type, packed, Mem);
             static constexpr std::size_t group_size = details::align_bits_byte(
-                details::bit_field_group_desc_of<Mem, endian, packed>.group_bit_width);
+                details::bit_field_group_desc_of<Mem, packed>.group_bit_width);
             if (raw.size() < offset + group_size) {
                 [[unlikely]] return false;
             }
@@ -238,9 +238,9 @@ private:
     buffer_type raw;
 };
 
-template<typename ValueType, std::endian GlobalEndian = std::endian::native, std::size_t Packed = 1uz>
+template<typename ValueType, std::size_t Packed = 1uz>
 consteval std::span<const std::meta::member_offset> layout() noexcept {
-    auto offsets = details::layout_of<ValueType, GlobalEndian, Packed>.offsets
+    auto offsets = details::layout_of<ValueType, Packed>.offsets
         | std::views::transform([](const details::member_offset_info& info) {
             if (info.group_bit_width > 0) {
                 return info.get_bit_field_group()

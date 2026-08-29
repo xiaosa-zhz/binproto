@@ -51,7 +51,6 @@ namespace bpt::details {
 
     // Forward declaration
     consteval packed_layout generate_member_offset_table(std::meta::info type,
-                                                         std::endian endian,
                                                          std::size_t required_align);
 
     consteval std::meta::access_context unprivileged() noexcept {
@@ -70,9 +69,7 @@ namespace bpt::details {
         return result;
     }
 
-    consteval auto generate_class_layout(std::meta::info type,
-                                         std::endian endian,
-                                         std::size_t required_align) {
+    consteval auto generate_class_layout(std::meta::info type, std::size_t required_align) {
         const auto layout_members = members_for_layout(type);
         packed_layout result;
         std::vector<member_offset_info> offsets;
@@ -149,7 +146,7 @@ namespace bpt::details {
             current_offset = align_to(current_offset, effective_align);
             offsets.push_back({ .index = index, .offset = current_offset });
             const auto subobj_layout
-                = generate_member_offset_table(type_of(member), endian, required_align);
+                = generate_member_offset_table(type_of(member), required_align);
             current_offset += subobj_layout.total_size;
             ++index;
         }
@@ -160,12 +157,10 @@ namespace bpt::details {
         return result;
     }
 
-    consteval auto generate_array_layout(std::meta::info type,
-                                         std::endian endian,
-                                         std::size_t required_align) {
+    consteval auto generate_array_layout(std::meta::info type, std::size_t required_align) {
         const std::size_t ext = extent(type);
         const auto element_layout
-            = generate_member_offset_table(remove_extent(type), endian, required_align);
+            = generate_member_offset_table(remove_extent(type), required_align);
         packed_layout result;
         const std::size_t stride = element_layout.total_size;
         std::vector<member_offset_info> offsets(ext);
@@ -178,20 +173,18 @@ namespace bpt::details {
     }
 
     consteval packed_layout generate_member_offset_table(std::meta::info type,
-                                                         std::endian endian,
                                                          std::size_t required_align) {
         type = dealias(type);
         if (is_class_type(type)) {
-            return generate_class_layout(type, endian, required_align);
+            return generate_class_layout(type, required_align);
         } else if (is_bounded_array_type(type)) {
-            return generate_array_layout(type, endian, required_align);
+            return generate_array_layout(type, required_align);
         } else {
             return packed_layout{ .offsets = {}, .total_size = size_of(type) };
         }
     }
 
     consteval std::size_t get_overall_offset_of_member(std::meta::info type,
-                                                       std::endian endian,
                                                        std::size_t packed,
                                                        std::meta::info mem) {
         type = dealias(type);
@@ -201,7 +194,7 @@ namespace bpt::details {
         if (!is_nonstatic_data_member(mem)) {
             throw std::meta::exception("member is not a non-static data member", mem);
         }
-        const auto layout = generate_member_offset_table(type, endian, packed);
+        const auto layout = generate_member_offset_table(type, packed);
         const auto data_members = subobjects_of(type, unprivileged());
         // test direct members first
         for (const auto offset : layout.offsets) {
@@ -221,7 +214,7 @@ namespace bpt::details {
             const bool accessible = extract<bool>(
                 substitute(^^member_accessible, { base_type, reflect_constant(mem) }));
             if (accessible) {
-                return get_overall_offset_of_member(base_type, endian, packed, mem)
+                return get_overall_offset_of_member(base_type, packed, mem)
                      + layout.offsets[i].offset;
             }
             ++i;
@@ -235,12 +228,10 @@ namespace bpt::details {
         std::size_t group_bit_width = 0;
     };
 
-    consteval bit_field_desc get_bit_field_group_desc(std::meta::info mem,
-                                                       std::endian endian,
-                                                       std::size_t packed) {
+    consteval bit_field_desc get_bit_field_group_desc(std::meta::info mem, std::size_t packed) {
         const auto parent = parent_of(mem);
         const auto members = subobjects_of(parent, unprivileged());
-        const auto layout = generate_member_offset_table(parent, endian, packed);
+        const auto layout = generate_member_offset_table(parent, packed);
         for (auto offset : layout.offsets) {
             if (offset.group_bit_width == 0) {
                 continue;
@@ -248,7 +239,10 @@ namespace bpt::details {
             const auto group = offset.get_bit_field_group();
             for (auto info : group) {
                 if (members[info.index] == mem) {
-                    return { .bit_offset = info.bit_offset, .group_bit_width = offset.group_bit_width };
+                    return {
+                        .bit_offset = info.bit_offset,
+                        .group_bit_width = offset.group_bit_width,
+                    };
                 }
             }
         }
@@ -331,12 +325,12 @@ namespace bpt::details {
     template<typename T>
     using value_rep_type = std::array<std::byte, sizeof(T)>;
 
-    template<typename T, std::endian Endian, std::size_t Packed>
-    inline constexpr auto layout_of = generate_member_offset_table(^^T, Endian, Packed);
+    template<typename T, std::size_t Packed>
+    inline constexpr auto layout_of = generate_member_offset_table(^^T, Packed);
 
-    template<std::meta::info Mem, std::endian Endian, std::size_t Packed>
+    template<std::meta::info Mem, std::size_t Packed>
         requires (is_bit_field(Mem))
-    inline constexpr auto bit_field_group_desc_of = get_bit_field_group_desc(Mem, Endian, Packed);
+    inline constexpr auto bit_field_group_desc_of = get_bit_field_group_desc(Mem, Packed);
 
     template<typename FloatType>
     using integer_rep_type = [:[] consteval {
@@ -421,7 +415,7 @@ namespace bpt::details {
         requires (is_bit_field(Mem))
     constexpr void read_sub_bits(T& obj, std::span<const std::byte> raw) noexcept {
         static constexpr auto member = Mem;
-        static constexpr auto [bit_offset, group_bit_width] = bit_field_group_desc_of<Mem, Endian, Packed>;
+        static constexpr auto [bit_offset, group_bit_width] = bit_field_group_desc_of<Mem, Packed>;
         static constexpr auto member_width = bit_size_of(member);
         static constexpr auto member_type = type_of(member);
         static constexpr auto group_length = align_bits_byte(group_bit_width);
@@ -444,7 +438,7 @@ namespace bpt::details {
         requires (is_bit_field(Mem))
     constexpr void write_sub_bits(const T& obj, std::span<std::byte> raw) noexcept {
         static constexpr auto member = Mem;
-        static constexpr auto [bit_offset, group_bit_width] = bit_field_group_desc_of<Mem, Endian, Packed>;
+        static constexpr auto [bit_offset, group_bit_width] = bit_field_group_desc_of<Mem, Packed>;
         static constexpr auto member_width = bit_size_of(member);
         static constexpr auto member_type = type_of(member);
         static constexpr auto group_length = align_bits_byte(group_bit_width);
@@ -528,7 +522,7 @@ namespace bpt::details {
     template<std::endian Endian, std::size_t Packed, typename T>
     constexpr void read(T& value, std::span<const std::byte> raw) noexcept {
         static constexpr auto type = remove_cvref(^^T);
-        static constexpr auto layout = layout_of<T, Endian, Packed>;
+        static constexpr auto layout = layout_of<T, Packed>;
         if constexpr (is_class_type(type)) {
             template for (constexpr auto info : layout.offsets) {
                 if constexpr (info.group_bit_width > 0) {
@@ -537,13 +531,13 @@ namespace bpt::details {
                 } else {
                     static constexpr auto member = subobjects_of(type, unprivileged())[info.index];
                     using member_type = [:type_of(member):];
-                    static constexpr auto member_size = layout_of<member_type, Endian, Packed>.total_size;
+                    static constexpr auto member_size = layout_of<member_type, Packed>.total_size;
                     read<Endian, Packed>(value.[:member:], raw.subspan(info.offset, member_size));
                 }
             }
         } else if constexpr (is_bounded_array_type(type)) {
             static constexpr auto elem_type = remove_extent(type);
-            static constexpr auto elem_size = layout_of<typename [:elem_type:], Endian, Packed>.total_size;
+            static constexpr auto elem_size = layout_of<typename [:elem_type:], Packed>.total_size;
             for (auto index : std::views::iota(0uz, extent(type))) {
                 read<Endian, Packed>(value[index], raw.subspan(index * elem_size, elem_size));
             }
@@ -572,7 +566,7 @@ namespace bpt::details {
     template<std::endian Endian, std::size_t Packed, typename T>
     constexpr void write(const T& value, std::span<std::byte> raw) noexcept {
         static constexpr auto type = remove_cvref(^^T);
-        static constexpr auto layout = layout_of<T, Endian, Packed>;
+        static constexpr auto layout = layout_of<T, Packed>;
         if constexpr (is_class_type(type)) {
             template for (constexpr auto info : layout.offsets) {
                 if constexpr (info.group_bit_width > 0) {
@@ -581,13 +575,13 @@ namespace bpt::details {
                 } else {
                     static constexpr auto member = subobjects_of(type, unprivileged())[info.index];
                     using member_type = [:type_of(member):];
-                    static constexpr auto member_size = layout_of<member_type, Endian, Packed>.total_size;
+                    static constexpr auto member_size = layout_of<member_type, Packed>.total_size;
                     write<Endian, Packed>(value.[:member:], raw.subspan(info.offset, member_size));
                 }
             }
         } else if constexpr (is_bounded_array_type(type)) {
             static constexpr auto elem_type = remove_extent(type);
-            static constexpr auto elem_size = layout_of<typename [:elem_type:], Endian, Packed>.total_size;
+            static constexpr auto elem_size = layout_of<typename [:elem_type:], Packed>.total_size;
             for (auto index : std::views::iota(0uz, extent(type))) {
                 write<Endian, Packed>(value[index], raw.subspan(index * elem_size, elem_size));
             }
