@@ -429,7 +429,7 @@ namespace bpt::details {
                       "only little-endian and big-endian are supported");
         static_assert(is_same_type(member_type, ^^T),
                       "obj must be of the same type as the member");
-        static constexpr std::size_t shift
+        static constexpr auto shift
             = bit_field_shift<Endian>(group_length, member_width, bit_offset);
         using group_type = minimal_unsigned_type<group_bit_width>;
         static constexpr auto mask = low_bits_mask<group_type, member_width>();
@@ -448,7 +448,7 @@ namespace bpt::details {
         static constexpr auto member_width = bit_size_of(member);
         static constexpr auto member_type = type_of(member);
         static constexpr auto group_length = align_bits_byte(group_bit_width);
-        static constexpr std::size_t shift
+        static constexpr auto shift
             = bit_field_shift<Endian>(group_length, member_width, bit_offset);
         static_assert(is_sane_endian() && is_sane_endian(Endian),
                       "only little-endian and big-endian are supported");
@@ -470,8 +470,8 @@ namespace bpt::details {
         static constexpr auto bit_field_group = Info.get_bit_field_group();
         static constexpr auto data_members
             = std::define_static_array(subobjects_of(^^T, unprivileged()));
-        static constexpr std::size_t group_bit_width = Info.group_bit_width;
-        static constexpr std::size_t group_length = align_bits_byte(group_bit_width);
+        static constexpr auto group_bit_width = Info.group_bit_width;
+        static constexpr auto group_length = align_bits_byte(group_bit_width);
         static_assert(is_sane_endian() && is_sane_endian(Endian),
                       "only little-endian and big-endian are supported");
         using group_type = minimal_unsigned_type<group_bit_width>;
@@ -479,7 +479,7 @@ namespace bpt::details {
         template for (constexpr auto info : bit_field_group) {
             static constexpr auto member = data_members[info.index];
             static constexpr auto member_width = bit_size_of(member);
-            static constexpr std::size_t shift
+            static constexpr auto shift
                 = bit_field_shift<Endian>(group_length, member_width, info.bit_offset);
             const group_type raw_bits = static_cast<group_type>(
                 (group_value >> shift) & low_bits_mask<group_type, member_width>());
@@ -493,8 +493,8 @@ namespace bpt::details {
         static constexpr auto bit_field_group = Info.get_bit_field_group();
         static constexpr auto data_members
             = std::define_static_array(subobjects_of(^^T, unprivileged()));
-        static constexpr std::size_t group_bit_width = Info.group_bit_width;
-        static constexpr std::size_t group_length = align_bits_byte(group_bit_width);
+        static constexpr auto group_bit_width = Info.group_bit_width;
+        static constexpr auto group_length = align_bits_byte(group_bit_width);
         static constexpr bool full_coverage = [] consteval {
             if (group_bit_width % CHAR_BIT != 0) {
                 return false;
@@ -513,7 +513,7 @@ namespace bpt::details {
         template for (constexpr auto info : bit_field_group) {
             static constexpr auto member = data_members[info.index];
             static constexpr auto member_width = bit_size_of(member);
-            static constexpr std::size_t shift
+            static constexpr auto shift
                 = bit_field_shift<Endian>(group_length, member_width, info.bit_offset);
             static constexpr auto member_mask = low_bits_mask<group_type, member_width>();
             const auto member_bits = member_value_to_bits<member>(obj.[:member:]);
