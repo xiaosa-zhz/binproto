@@ -235,7 +235,7 @@ namespace bpt::details {
         std::size_t group_bit_width = 0;
     };
 
-    consteval bit_field_desc get_bit_field_group_width(std::meta::info mem,
+    consteval bit_field_desc get_bit_field_group_desc(std::meta::info mem,
                                                        std::endian endian,
                                                        std::size_t packed) {
         const auto parent = parent_of(mem);
@@ -336,7 +336,7 @@ namespace bpt::details {
 
     template<std::meta::info Mem, std::endian Endian, std::size_t Packed>
         requires (is_bit_field(Mem))
-    inline constexpr auto bit_field_group_width_of = get_bit_field_group_width(Mem, Endian, Packed);
+    inline constexpr auto bit_field_group_desc_of = get_bit_field_group_desc(Mem, Endian, Packed);
 
     template<typename FloatType>
     using integer_rep_type = [:[] consteval {
@@ -421,7 +421,7 @@ namespace bpt::details {
         requires (is_bit_field(Mem))
     constexpr void read_sub_bits(T& obj, std::span<const std::byte> raw) noexcept {
         static constexpr auto member = Mem;
-        static constexpr auto [bit_offset, group_bit_width] = bit_field_group_width_of<Mem, Endian, Packed>;
+        static constexpr auto [bit_offset, group_bit_width] = bit_field_group_desc_of<Mem, Endian, Packed>;
         static constexpr auto member_width = bit_size_of(member);
         static constexpr auto member_type = type_of(member);
         static constexpr auto group_length = align_bits_byte(group_bit_width);
@@ -444,7 +444,7 @@ namespace bpt::details {
         requires (is_bit_field(Mem))
     constexpr void write_sub_bits(const T& obj, std::span<std::byte> raw) noexcept {
         static constexpr auto member = Mem;
-        static constexpr auto [bit_offset, group_bit_width] = bit_field_group_width_of<Mem, Endian, Packed>;
+        static constexpr auto [bit_offset, group_bit_width] = bit_field_group_desc_of<Mem, Endian, Packed>;
         static constexpr auto member_width = bit_size_of(member);
         static constexpr auto member_type = type_of(member);
         static constexpr auto group_length = align_bits_byte(group_bit_width);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "details/layout.hh"
+#include <cstddef>
 
 namespace bpt {
 
@@ -37,6 +38,28 @@ class view_base
     using rebind_type_view = traits::template rebind<T>;
 
 public:
+    [[nodiscard]]
+    static consteval std::size_t wire_size() noexcept {
+        return details::layout_of<value_type, endian, packed>.total_size;
+    }
+
+    template<std::meta::info Mem>
+        requires details::member_accessible<value_type, Mem>
+    [[nodiscard]] static consteval std::meta::member_offset offset_of() noexcept {
+        static constexpr auto group_offset
+            = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
+        if constexpr (is_bit_field(Mem)) {
+            static constexpr auto bit_offset
+                = details::bit_field_group_desc_of<Mem, endian, packed>.bit_offset;
+            return {
+                .bytes = static_cast<std::ptrdiff_t>(group_offset + (bit_offset / CHAR_BIT)),
+                .bits = static_cast<std::ptrdiff_t>(bit_offset % CHAR_BIT),
+            };
+        } else {
+            return { .bytes = static_cast<std::ptrdiff_t>(group_offset), .bits = 0 };
+        }
+    }
+
     template<std::meta::info Mem>
         requires details::member_accessible<value_type, Mem> && (!is_bit_field(Mem))
     [[nodiscard]] constexpr rebind_mem_view<Mem> subview() const noexcept {
@@ -49,11 +72,6 @@ public:
             [[unlikely]] return {};
         }
         return raw.subspan(offset, member_size);
-    }
-
-    [[nodiscard]]
-    static consteval std::size_t wire_size() noexcept {
-        return details::layout_of<value_type, endian, packed>.total_size;
     }
 
     [[nodiscard]] constexpr auto consumed() const noexcept {
@@ -106,7 +124,7 @@ public:
             static constexpr std::size_t offset
                 = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
             static constexpr std::size_t group_size = details::align_bits_byte(
-                details::bit_field_group_width_of<Mem, endian, packed>.group_bit_width);
+                details::bit_field_group_desc_of<Mem, endian, packed>.group_bit_width);
             const auto raw = ((const view_type*)this)->buffer();
             if (raw.size() < offset + group_size) {
                 [[unlikely]] return false;
@@ -139,8 +157,9 @@ public:
     // only when actually reading or writing the value, it will check if the raw data is enough.
     constexpr binary_view(buffer_type raw) noexcept : raw(raw) {}
 
-    using base::subview;
     using base::wire_size;
+    using base::offset_of;
+    using base::subview;
     using base::consumed;
     using base::remained;
     using base::consumed_view;
@@ -163,7 +182,7 @@ public:
             static constexpr std::size_t offset
                 = details::get_overall_offset_of_member(^^value_type, endian, packed, Mem);
             static constexpr std::size_t group_size = details::align_bits_byte(
-                details::bit_field_group_width_of<Mem, endian, packed>.group_bit_width);
+                details::bit_field_group_desc_of<Mem, endian, packed>.group_bit_width);
             if (raw.size() < offset + group_size) {
                 [[unlikely]] return false;
             }
@@ -203,8 +222,9 @@ public:
         : raw(view.buffer())
     {}
 
-    using base::subview;
     using base::wire_size;
+    using base::offset_of;
+    using base::subview;
     using base::consumed;
     using base::remained;
     using base::consumed_view;
@@ -217,5 +237,31 @@ public:
 private:
     buffer_type raw;
 };
+
+template<typename ValueType, std::endian GlobalEndian = std::endian::native, std::size_t Packed = 1uz>
+consteval std::span<const std::meta::member_offset> layout() noexcept {
+    auto offsets = details::layout_of<ValueType, GlobalEndian, Packed>.offsets
+        | std::views::transform([](const details::member_offset_info& info) {
+            if (info.group_bit_width > 0) {
+                return info.get_bit_field_group()
+                    | std::views::transform([&info](const details::bit_field_info& bit_info) {
+                        return std::meta::member_offset{
+                            .bytes = static_cast<std::ptrdiff_t>(info.offset + (bit_info.bit_offset / CHAR_BIT)),
+                            .bits = static_cast<std::ptrdiff_t>(bit_info.bit_offset % CHAR_BIT),
+                        };
+                    })
+                    | std::ranges::to<std::vector<std::meta::member_offset>>();
+            } else {
+                return std::vector<std::meta::member_offset>{
+                    {
+                        .bytes = static_cast<std::ptrdiff_t>(info.offset),
+                        .bits = 0,
+                    }
+                };
+            }
+        })
+        | std::ranges::to<std::vector>();
+    return std::define_static_array(offsets | std::views::join);
+}
 
 } // namespace bpt
