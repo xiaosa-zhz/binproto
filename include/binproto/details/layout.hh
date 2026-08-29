@@ -458,11 +458,13 @@ namespace bpt::details {
         static constexpr std::size_t shift
             = bit_field_shift<Endian>(group_length, member_width, bit_offset);
         using group_type = minimal_unsigned_type<group_length>;
-        static constexpr group_type member_mask = low_bits_mask<group_type, member_width>();
+        static constexpr auto member_mask = low_bits_mask<group_type, member_width>();
         group_type group_value = load_group_value<Endian, group_length>(raw.data());
+        const auto member_bits = member_value_to_bits<member>(obj);
         group_value &= static_cast<group_type>(~(member_mask << shift));
         group_value |= static_cast<group_type>(
-            (static_cast<group_type>(member_value_to_bits<member>(obj)) & member_mask) << shift);
+            (static_cast<group_type>(member_bits) & member_mask) << shift
+        );
         store_group_value<Endian, group_length>(raw.data(), group_value);
     }
 
