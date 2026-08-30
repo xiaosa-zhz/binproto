@@ -68,6 +68,24 @@ constexpr bool write_fundamental(const T& value, std::span<std::byte> raw) noexc
     return true;
 }
 
+template<std::endian Endian, details::fundamental T>
+constexpr bool read_fundamental_batch(std::span<T> value, std::span<const std::byte> raw) noexcept {
+    if (raw.size() < std::saturating_mul(sizeof(T), value.size())) {
+        [[unlikely]] return false;
+    }
+    details::read_batch<Endian, 1>(value, raw);
+    return true;
+}
+
+template<std::endian Endian, details::fundamental T>
+constexpr bool write_fundamental_batch(std::span<const T> value, std::span<std::byte> raw) noexcept {
+    if (raw.size() < std::saturating_mul(sizeof(T), value.size())) {
+        [[unlikely]] return false;
+    }
+    details::write_batch<Endian, 1>(value, raw);
+    return true;
+}
+
 namespace details {
 
 template<typename View>
