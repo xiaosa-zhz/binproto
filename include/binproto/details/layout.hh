@@ -37,6 +37,10 @@ namespace bpt::details {
         const bit_field_info* bit_field_group_data = nullptr;
         std::size_t bit_field_group_size = 0;
 
+        constexpr bool is_bit_field_group() const noexcept {
+            return group_bit_width > 0;
+        }
+
         constexpr std::span<const bit_field_info> get_bit_field_group() const noexcept {
             return std::span(bit_field_group_data, bit_field_group_size);
         }
@@ -211,15 +215,15 @@ namespace bpt::details {
         const auto layout = generate_member_offset_table(type, packed);
         const auto data_members = subobjects_of(type, unprivileged());
         // test direct members first
-        for (const auto offset : layout.offsets) {
-            if (offset.group_bit_width > 0) {
-                for (auto info : offset.get_bit_field_group()) {
+        for (const auto off : layout.offsets) {
+            if (off.is_bit_field_group()) {
+                for (auto info : off.get_bit_field_group()) {
                     if (data_members[info.index] == mem) {
-                        return offset.offset;
+                        return off.offset;
                     }
                 }
-            } else if (data_members[offset.index] == mem) {
-                return offset.offset;
+            } else if (data_members[off.index] == mem) {
+                return off.offset;
             }
         }
         // maybe in base classes
@@ -582,8 +586,8 @@ namespace bpt::details {
             return false;
         } else {
             static constexpr auto layout = layout_of<T, Packed>;
-            for (const auto offset : layout.offsets) {
-                if (offset.group_bit_width > 0) {
+            for (const auto off : layout.offsets) {
+                if (off.is_bit_field_group()) {
                     return false;
                 }
             }
@@ -641,7 +645,7 @@ namespace bpt::details {
             read_fundamental<Endian>(value, raw.subspan(0, layout.total_size));
         } else if constexpr (is_class_type(type)) {
             template for (constexpr auto info : layout.offsets) {
-                if constexpr (info.group_bit_width > 0) {
+                if constexpr (info.is_bit_field_group()) {
                     read_sub_bits_group<info, Endian, Packed>(
                         value, raw.subspan(info.offset, align_bits_byte(info.group_bit_width)));
                 } else {
@@ -666,7 +670,7 @@ namespace bpt::details {
             write_fundamental<Endian>(value, raw.subspan(0, layout.total_size));
         } else if constexpr (is_class_type(type)) {
             template for (constexpr auto info : layout.offsets) {
-                if constexpr (info.group_bit_width > 0) {
+                if constexpr (info.is_bit_field_group()) {
                     write_sub_bits_group<info, Endian, Packed>(
                         value, raw.subspan(info.offset, align_bits_byte(info.group_bit_width)));
                 } else {

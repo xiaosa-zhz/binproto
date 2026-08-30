@@ -33,6 +33,11 @@ struct Matrix {
 
 struct AfterByteArray { std::uint8_t pre; std::uint32_t m[3]; };
 
+// New-API test structs
+struct BitPair { std::uint8_t a : 3; std::uint8_t b : 5; };      // 1-byte group
+struct WidePair { std::uint16_t x : 4; std::uint16_t y : 12; };  // 2-byte group
+struct Chunk { std::uint32_t id; std::uint16_t seq; };           // 6 bytes, no groups
+
 int run_scalar_tests() {
     // --- Roundtrip test: Simple, pack(1), scalar members ---
     {
@@ -402,6 +407,163 @@ int run_scalar_tests() {
         bool ok = wire_ok && r.pre == 0x55 && r.m[0] == 0x11111111 && r.m[2] == 0x33333333;
         std::println("[{:<15} {:<13}] m@2 total=14 | {}",
                      "AfterByteArray", "pack(2)", ok ? "OK" : "FAIL");
+        if (!ok) return 1;
+    }
+
+    // --- layout<T, Packed>() / offset_of<Mem, T, Packed>() ---
+    {
+        const auto l_bits = bpt::layout<BitPair, 1>();
+        bool ok = l_bits.size() == 2
+               && l_bits[0].bytes == 0 && l_bits[0].bits == 0
+               && l_bits[1].bytes == 0 && l_bits[1].bits == 3;
+
+        const auto l_plain = bpt::layout<Simple, 1>();
+        ok = ok && l_plain.size() == 3
+             && l_plain[0].bytes == 0 && l_plain[0].bits == 0
+             && l_plain[1].bytes == 4 && l_plain[1].bits == 0
+             && l_plain[2].bytes == 5 && l_plain[2].bits == 0;
+
+        const auto oa = bpt::offset_of<^^BitPair::a, BitPair, 1>();
+        const auto ob = bpt::offset_of<^^BitPair::b, BitPair, 1>();
+        ok = ok && oa.bytes == 0 && oa.bits == 0
+             && ob.bytes == 0 && ob.bits == 3;
+
+        const auto oc = bpt::offset_of<^^Simple::c, Simple, 1>();
+        ok = ok && oc.bytes == 5 && oc.bits == 0;
+
+        using BitView = bpt::binary_view<BitPair, std::endian::little, 1>;
+        const auto vo = BitView::offset_of<^^BitPair::b>();
+        ok = ok && vo.bytes == 0 && vo.bits == 3;
+
+        std::println("[{:<15} {:<13}] layout/offset_of (bit+plain+view) | {}",
+                     "API", "layout", ok ? "OK" : "FAIL");
+        if (!ok) return 1;
+    }
+
+    // --- read_fundamental / write_fundamental ---
+    {
+        std::array<std::byte, 8> buf{};
+        std::uint32_t v = 0x11223344, r = 0;
+        bool ok = bpt::write_fundamental<std::endian::big>(v, buf)
+               && bpt::read_fundamental<std::endian::big>(r, buf) && r == v
+               && std::to_integer<unsigned>(buf[0]) == 0x11
+               && std::to_integer<unsigned>(buf[3]) == 0x44;
+
+        std::uint32_t too_small_r = 0;
+        const std::span<const std::byte> one = std::span<const std::byte>(buf).first(1);
+        const std::span<std::byte> one_mut = std::span<std::byte>(buf).first(1);
+        ok = ok && !bpt::read_fundamental<std::endian::big>(too_small_r, one)
+             && !bpt::write_fundamental<std::endian::big>(v, one_mut);
+
+        std::println("[{:<15} {:<13}] u32 BE roundtrip + bounds | {}",
+                     "API", "fundamental", ok ? "OK" : "FAIL");
+        if (!ok) return 1;
+    }
+
+    // --- batch read/write (std::span of values) ---
+    {
+        // BitPair: 1-byte elements -> direct-copy fast path, both endians
+        std::array<std::byte, 4> buf{};
+        bpt::binary_view<BitPair, std::endian::little, 1> view(buf);
+        const std::array<BitPair, 4> in{{ {5, 25}, {0, 0}, {7, 1}, {6, 2} }};
+        if (!view.write(std::span<const BitPair>(in))) return 1;
+        bool ok = std::to_integer<unsigned>(buf[0]) == 0xCD
+               && std::to_integer<unsigned>(buf[1]) == 0x00
+               && std::to_integer<unsigned>(buf[2]) == 0x0F
+               && std::to_integer<unsigned>(buf[3]) == 0x16;
+
+        std::array<BitPair, 4> out{};
+        bpt::readonly_binary_view<BitPair, std::endian::little, 1> rview(buf);
+        ok = ok && rview.read(std::span<BitPair>(out))
+             && out[0].a == 5 && out[0].b == 25 && out[2].a == 7 && out[3].b == 2;
+
+        // too few bytes for the whole batch
+        std::array<BitPair, 5> more{};
+        ok = ok && !rview.read(std::span<BitPair>(more));
+
+        // WidePair: same object/wire size but has a bit-field group ->
+        // direct-copy must be rejected, element-wise path used instead
+        std::array<std::byte, 4> wbuf{};
+        bpt::binary_view<WidePair, std::endian::native, 1> wview(wbuf);
+        const std::array<WidePair, 2> win{{ {0xA, 0xABC}, {0x1, 0x2} }};
+        if (!wview.write(std::span<const WidePair>(win))) return 1;
+        ok = ok && std::to_integer<unsigned>(wbuf[0]) == 0xCA
+             && std::to_integer<unsigned>(wbuf[1]) == 0xAB
+             && std::to_integer<unsigned>(wbuf[2]) == 0x21
+             && std::to_integer<unsigned>(wbuf[3]) == 0x00;
+
+        std::array<WidePair, 2> wout{};
+        bpt::readonly_binary_view<WidePair, std::endian::native, 1> wrview(wbuf);
+        ok = ok && wrview.read(std::span<WidePair>(wout))
+             && wout[0].x == 0xA && wout[0].y == 0xABC && wout[1].x == 0x1 && wout[1].y == 0x2;
+
+        // Chunk: native endian, no groups, sizeof == wire size -> direct copy
+        std::array<std::byte, 12> cbuf{};
+        bpt::binary_view<Chunk, std::endian::native, 1> cview(cbuf);
+        const std::array<Chunk, 2> cin{{ {0x11223344, 0x5566}, {0xAABBCCDD, 0x7788} }};
+        if (!cview.write(std::span<const Chunk>(cin))) return 1;
+        ok = ok && std::to_integer<unsigned>(cbuf[0]) == 0x44
+             && std::to_integer<unsigned>(cbuf[3]) == 0x11
+             && std::to_integer<unsigned>(cbuf[4]) == 0x66
+             && std::to_integer<unsigned>(cbuf[6]) == 0xDD
+             && std::to_integer<unsigned>(cbuf[9]) == 0xAA
+             && std::to_integer<unsigned>(cbuf[10]) == 0x88
+             && std::to_integer<unsigned>(cbuf[11]) == 0x77;
+
+        std::array<Chunk, 2> cout{};
+        bpt::readonly_binary_view<Chunk, std::endian::native, 1> crview(cbuf);
+        ok = ok && crview.read(std::span<Chunk>(cout)) && cout[0].id == 0x11223344
+             && cout[1].seq == 0x7788;
+
+        // Chunk, big endian: batch must fall back to element-wise byte swap
+        std::array<std::byte, 12> cbuf_be{};
+        bpt::binary_view<Chunk, std::endian::big, 1> cview_be(cbuf_be);
+        if (!cview_be.write(std::span<const Chunk>(cin))) return 1;
+        ok = ok && std::to_integer<unsigned>(cbuf_be[0]) == 0x11
+             && std::to_integer<unsigned>(cbuf_be[3]) == 0x44
+             && std::to_integer<unsigned>(cbuf_be[4]) == 0x55
+             && std::to_integer<unsigned>(cbuf_be[5]) == 0x66;
+
+        std::array<Chunk, 2> cout_be{};
+        bpt::readonly_binary_view<Chunk, std::endian::big, 1> crview_be(cbuf_be);
+        ok = ok && crview_be.read(std::span<Chunk>(cout_be))
+             && cout_be[0].id == 0x11223344 && cout_be[1].seq == 0x7788;
+
+        std::println("[{:<15} {:<13}] batch direct-copy + group + BE | {}",
+                     "API", "batch", ok ? "OK" : "FAIL");
+        if (!ok) return 1;
+    }
+
+    // --- consumed / remained / consumed_view / remained_view ---
+    {
+        using ChunkView = bpt::binary_view<Chunk, std::endian::little, 1>;
+        static_assert(ChunkView::wire_size() == 6);
+
+        std::array<std::byte, 16> buf{};
+        ChunkView view(buf);
+        bool ok = view.consumed().size() == 6
+               && view.remained().size() == 10
+               && view.remained(2).size() == 4
+               && view.consumed_view().buffer().size() == 6
+               && view.remained_view<Chunk>(1).buffer().size() == 10
+               && view.remained_view<Chunk>(2).buffer().size() == 4
+               && view.remained_view<Chunk>(3).buffer().size() == 0;
+
+        // saturating count: no multiply overflow can pass the bounds check
+        constexpr std::size_t huge = std::size_t{1} << 62; // 6 * 2^62 wraps to 0
+        ok = ok && view.remained(huge).size() == 0
+             && view.remained_view<Chunk>(huge).buffer().size() == 0;
+
+        // too-small buffer: every split helper fails closed
+        std::array<std::byte, 4> small{};
+        ChunkView sv(small);
+        ok = ok && sv.consumed().size() == 0
+             && sv.remained().size() == 0
+             && sv.consumed_view().buffer().size() == 0
+             && sv.remained_view<Chunk>().buffer().size() == 0;
+
+        std::println("[{:<15} {:<13}] splits + saturating count + fail-closed | {}",
+                     "API", "consume", ok ? "OK" : "FAIL");
         if (!ok) return 1;
     }
 
