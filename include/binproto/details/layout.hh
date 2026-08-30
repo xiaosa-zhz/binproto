@@ -580,10 +580,8 @@ namespace bpt::details {
 
     template<typename T, std::endian Endian, std::size_t Packed>
     consteval bool can_direct_copy() noexcept {
-        if constexpr (sizeof(T) == 1) {
-            return true;
-        } else if constexpr (Endian != std::endian::native) {
-            return false;
+        if constexpr (is_fundamental(^^T)) {
+            return sizeof(T) == 1 || Endian == std::endian::native;
         } else {
             static constexpr auto layout = layout_of<T, Packed>;
             for (const auto off : layout.offsets) {
