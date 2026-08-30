@@ -50,20 +50,20 @@ consteval std::meta::member_offset offset_of() noexcept {
 }
 
 template<std::endian Endian, details::fundamental T>
-constexpr bool read_from_bytes(T& value, std::span<const std::byte> raw) noexcept {
+constexpr bool read_fundamental(T& value, std::span<const std::byte> raw) noexcept {
     if (raw.size() < sizeof(T)) {
         [[unlikely]] return false;
     }
-    details::read_from_bytes<Endian>(value, raw);
+    details::read_fundamental<Endian>(value, raw);
     return true;
 }
 
 template<std::endian Endian, details::fundamental T>
-constexpr bool write_to_bytes(const T& value, std::span<std::byte> raw) noexcept {
+constexpr bool write_fundamental(const T& value, std::span<std::byte> raw) noexcept {
     if (raw.size() < sizeof(T)) {
         [[unlikely]] return false;
     }
-    details::write_to_bytes<Endian>(value, raw);
+    details::write_fundamental<Endian>(value, raw);
     return true;
 }
 
@@ -100,8 +100,7 @@ class view_base
     using rebind_type_view = traits::template rebind<T>;
 
 public:
-    [[nodiscard]]
-    static consteval std::size_t wire_size() noexcept {
+    [[nodiscard]] static consteval std::size_t wire_size() noexcept {
         return details::layout_of<value_type, packed>.total_size;
     }
 
@@ -133,12 +132,12 @@ public:
         return raw.subspan(0, wire_size());
     }
 
-    [[nodiscard]] constexpr auto remained() const noexcept {
+    [[nodiscard]] constexpr auto remained(std::size_t consume = 1) const noexcept {
         auto raw = ((const view_type*)this)->buffer();
-        if (raw.size() < wire_size()) {
+        if (raw.size() < wire_size() * consume) {
             [[unlikely]] return decltype(raw){};
         }
-        return raw.subspan(wire_size());
+        return raw.subspan(wire_size() * consume);
     }
 
     [[nodiscard]] constexpr view_type consumed_view() const noexcept {
@@ -150,21 +149,31 @@ public:
     }
 
     template<typename Succeeded>
-    [[nodiscard]] constexpr rebind_type_view<Succeeded> remained_view() const noexcept {
+    [[nodiscard]] constexpr auto remained_view(std::size_t consume = 1) const noexcept
+        -> rebind_type_view<Succeeded>
+    {
         auto raw = ((const view_type*)this)->buffer();
-        if (raw.size() < wire_size()) {
+        if (raw.size() < wire_size() * consume) {
             [[unlikely]] return {};
         }
-        return raw.subspan(wire_size());
+        return raw.subspan(wire_size() * consume);
     }
 
-    [[nodiscard]]
-    constexpr bool read(value_type& value) const noexcept {
+    [[nodiscard]] constexpr bool read(value_type& value) const noexcept {
         const auto raw = ((const view_type*)this)->buffer();
         if (raw.size() < wire_size()) {
             [[unlikely]] return false;
         }
         details::read<endian, packed>(value, raw.subspan(0, wire_size()));
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool read(std::span<value_type> values) const noexcept {
+        const auto raw = ((const view_type*)this)->buffer();
+        if (raw.size() < wire_size() * values.size()) {
+            [[unlikely]] return false;
+        }
+        details::read_batch<endian, packed>(values, raw);
         return true;
     }
 
@@ -217,12 +226,19 @@ public:
     using base::remained_view;
     using base::read;
 
-    [[nodiscard]]
-    constexpr bool write(const value_type& value) const noexcept {
+    [[nodiscard]] constexpr bool write(const value_type& value) const noexcept {
         if (raw.size() < wire_size()) {
             [[unlikely]] return false;
         }
         details::write<endian, packed>(value, raw.subspan(0, wire_size()));
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool write(std::span<const value_type> values) const noexcept {
+        if (raw.size() < wire_size() * values.size()) {
+            [[unlikely]] return false;
+        }
+        details::write_batch<endian, packed>(values, raw);
         return true;
     }
 

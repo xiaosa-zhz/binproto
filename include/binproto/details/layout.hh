@@ -60,6 +60,14 @@ namespace bpt::details {
     consteval packed_layout generate_member_offset_table(std::meta::info type,
                                                          std::size_t required_align);
 
+    // Forward declaration
+    template<std::endian Endian, std::size_t Packed, typename T>
+    constexpr void read(T& value, std::span<const std::byte> raw) noexcept;
+
+    // Forward declaration
+    template<std::endian Endian, std::size_t Packed, typename T>
+    constexpr void write(const T& value, std::span<std::byte> raw) noexcept;
+
     consteval std::meta::access_context unprivileged() noexcept {
         return std::meta::access_context::unprivileged();
     }
@@ -527,7 +535,7 @@ namespace bpt::details {
     }
 
     template<std::endian Endian, details::fundamental T>
-    constexpr void read_from_bytes(T& value, std::span<const std::byte> raw) noexcept {
+    constexpr void read_fundamental(T& value, std::span<const std::byte> raw) noexcept {
         static constexpr auto type = remove_cvref(^^T);
         value_rep_type<T> buffer [[indeterminate]];
         std::ranges::copy_n(raw.data(), buffer.size(), buffer.data());
@@ -547,7 +555,7 @@ namespace bpt::details {
     }
 
     template<std::endian Endian, details::fundamental T>
-    constexpr void write_to_bytes(const T& value, std::span<std::byte> raw) noexcept {
+    constexpr void write_fundamental(const T& value, std::span<std::byte> raw) noexcept {
         static constexpr auto type = remove_cvref(^^T);
         auto buffer = [&value] {
             if constexpr (Endian != std::endian::native) {
@@ -567,12 +575,58 @@ namespace bpt::details {
         std::ranges::copy_n(buffer.data(), buffer.size(), raw.data());
     }
 
+    template<std::endian Endian, std::size_t Packed, typename T, std::size_t N>
+    constexpr void read_batch(std::span<T, N> values, std::span<const std::byte> raw) noexcept {
+        static constexpr auto type = remove_cvref(^^T);
+        static constexpr auto layout = layout_of<T, Packed>;
+        static constexpr auto total_size = layout.total_size;
+        static constexpr bool direct_copy = sizeof(T) == 1
+            || (Endian == std::endian::native && sizeof(T) == total_size);
+        auto element_wise_op = [&] noexcept {
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                read<Endian, Packed>(values[i], raw.subspan(i * total_size, total_size));
+            }
+        };
+        if consteval {
+            element_wise_op();
+        } else {
+            if constexpr (direct_copy) {
+                std::memcpy(values.data(), raw.data(), values.size() * sizeof(T));
+            } else {
+                element_wise_op();
+            }
+        }
+    }
+
+    template<std::endian Endian, std::size_t Packed, typename T, std::size_t N>
+    constexpr void write_batch(std::span<const T, N> values, std::span<std::byte> raw) noexcept {
+        static constexpr auto type = remove_cvref(^^T);
+        static constexpr auto layout = layout_of<T, Packed>;
+        static constexpr auto total_size = layout.total_size;
+        static constexpr bool direct_copy = sizeof(T) == 1
+            || (Endian == std::endian::native && sizeof(T) == total_size); 
+        auto element_wise_op = [&] noexcept {
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                write<Endian, Packed>(values[i], raw.subspan(i * total_size, total_size));
+            }
+        };
+        if consteval {
+            element_wise_op();
+        } else {
+            if constexpr (direct_copy) {
+                std::memcpy(raw.data(), values.data(), values.size() * sizeof(T));
+            } else {
+                element_wise_op();
+            }
+        }
+    }
+
     template<std::endian Endian, std::size_t Packed, typename T>
     constexpr void read(T& value, std::span<const std::byte> raw) noexcept {
         static constexpr auto type = remove_cvref(^^T);
         static constexpr auto layout = layout_of<T, Packed>;
         if constexpr (is_fundamental(type)) {
-            read_from_bytes<Endian>(value, raw.subspan(0, layout.total_size));
+            read_fundamental<Endian>(value, raw.subspan(0, layout.total_size));
         } else if constexpr (is_class_type(type)) {
             template for (constexpr auto info : layout.offsets) {
                 if constexpr (info.group_bit_width > 0) {
@@ -586,11 +640,7 @@ namespace bpt::details {
                 }
             }
         } else if constexpr (is_bounded_array_type(type)) {
-            static constexpr auto elem_type = remove_extent(type);
-            static constexpr auto elem_size = layout_of<typename [:elem_type:], Packed>.total_size;
-            for (auto index : std::views::iota(0uz, extent(type))) {
-                read<Endian, Packed>(value[index], raw.subspan(index * elem_size, elem_size));
-            }
+            read_batch<Endian, Packed>(std::span(value), raw.subspan(0, layout.total_size));
         } else {
             static_assert(false, "only arithmetic, enum, array, and class types are supported");
         }
@@ -601,7 +651,7 @@ namespace bpt::details {
         static constexpr auto type = remove_cvref(^^T);
         static constexpr auto layout = layout_of<T, Packed>;
         if constexpr (is_fundamental(type)) {
-            write_to_bytes<Endian>(value, raw.subspan(0, layout.total_size));
+            write_fundamental<Endian>(value, raw.subspan(0, layout.total_size));
         } else if constexpr (is_class_type(type)) {
             template for (constexpr auto info : layout.offsets) {
                 if constexpr (info.group_bit_width > 0) {
@@ -615,11 +665,7 @@ namespace bpt::details {
                 }
             }
         } else if constexpr (is_bounded_array_type(type)) {
-            static constexpr auto elem_type = remove_extent(type);
-            static constexpr auto elem_size = layout_of<typename [:elem_type:], Packed>.total_size;
-            for (auto index : std::views::iota(0uz, extent(type))) {
-                write<Endian, Packed>(value[index], raw.subspan(index * elem_size, elem_size));
-            }
+            write_batch<Endian, Packed>(std::span(value), raw.subspan(0, layout.total_size));
         } else {
             static_assert(false, "only arithmetic, enum, array, and class types are supported");
         }
