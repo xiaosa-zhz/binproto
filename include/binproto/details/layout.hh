@@ -5,7 +5,6 @@
 #include <cstring>
 #include <limits>
 #include <meta>
-#include <type_traits>
 #include <utility>
 #include <span>
 #include <bit>
@@ -15,7 +14,7 @@
 namespace bpt::details {
 
     template<typename T, std::meta::info Mem>
-    concept member_accessible = std::is_class_v<T>
+    concept member_accessible = (is_class_type(^^T))
                              && (is_nonstatic_data_member(Mem) || is_base(Mem))
                              && requires (T& v) { v.[:Mem:]; };
 
@@ -575,13 +574,28 @@ namespace bpt::details {
         std::ranges::copy_n(buffer.data(), buffer.size(), raw.data());
     }
 
+    template<typename T, std::endian Endian, std::size_t Packed>
+    consteval bool can_direct_copy() noexcept {
+        if constexpr (sizeof(T) == 1) {
+            return true;
+        } else if constexpr (Endian != std::endian::native) {
+            return false;
+        } else {
+            static constexpr auto layout = layout_of<T, Packed>;
+            for (const auto offset : layout.offsets) {
+                if (offset.group_bit_width > 0) {
+                    return false;
+                }
+            }
+            return sizeof(T) == layout.total_size;
+        }
+    }
+
     template<std::endian Endian, std::size_t Packed, typename T, std::size_t N>
     constexpr void read_batch(std::span<T, N> values, std::span<const std::byte> raw) noexcept {
         static constexpr auto type = remove_cvref(^^T);
         static constexpr auto layout = layout_of<T, Packed>;
         static constexpr auto total_size = layout.total_size;
-        static constexpr bool direct_copy = sizeof(T) == 1
-            || (Endian == std::endian::native && sizeof(T) == total_size);
         auto element_wise_op = [&] noexcept {
             for (std::size_t i = 0; i < values.size(); ++i) {
                 read<Endian, Packed>(values[i], raw.subspan(i * total_size, total_size));
@@ -590,7 +604,7 @@ namespace bpt::details {
         if consteval {
             element_wise_op();
         } else {
-            if constexpr (direct_copy) {
+            if constexpr (can_direct_copy<T, Endian, Packed>()) {
                 std::memcpy(values.data(), raw.data(), values.size() * sizeof(T));
             } else {
                 element_wise_op();
@@ -603,8 +617,6 @@ namespace bpt::details {
         static constexpr auto type = remove_cvref(^^T);
         static constexpr auto layout = layout_of<T, Packed>;
         static constexpr auto total_size = layout.total_size;
-        static constexpr bool direct_copy = sizeof(T) == 1
-            || (Endian == std::endian::native && sizeof(T) == total_size); 
         auto element_wise_op = [&] noexcept {
             for (std::size_t i = 0; i < values.size(); ++i) {
                 write<Endian, Packed>(values[i], raw.subspan(i * total_size, total_size));
@@ -613,7 +625,7 @@ namespace bpt::details {
         if consteval {
             element_wise_op();
         } else {
-            if constexpr (direct_copy) {
+            if constexpr (can_direct_copy<T, Endian, Packed>()) {
                 std::memcpy(raw.data(), values.data(), values.size() * sizeof(T));
             } else {
                 element_wise_op();

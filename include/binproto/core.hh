@@ -1,6 +1,7 @@
 #pragma once
 
 #include "details/layout.hh"
+#include <numeric>
 
 namespace bpt {
 
@@ -134,7 +135,7 @@ public:
 
     [[nodiscard]] constexpr auto remained(std::size_t consume = 1) const noexcept {
         auto raw = ((const view_type*)this)->buffer();
-        if (raw.size() < wire_size() * consume) {
+        if (raw.size() < std::saturating_mul(wire_size(), consume)) {
             [[unlikely]] return decltype(raw){};
         }
         return raw.subspan(wire_size() * consume);
@@ -153,7 +154,7 @@ public:
         -> rebind_type_view<Succeeded>
     {
         auto raw = ((const view_type*)this)->buffer();
-        if (raw.size() < wire_size() * consume) {
+        if (raw.size() < std::saturating_mul(wire_size(), consume)) {
             [[unlikely]] return {};
         }
         return raw.subspan(wire_size() * consume);
