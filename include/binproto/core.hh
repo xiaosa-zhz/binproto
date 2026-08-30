@@ -1,7 +1,6 @@
 #pragma once
 
 #include "details/layout.hh"
-#include <cstddef>
 
 namespace bpt {
 
@@ -48,6 +47,24 @@ consteval std::meta::member_offset offset_of() noexcept {
     } else {
         return { .bytes = static_cast<std::ptrdiff_t>(group_offset), .bits = 0 };
     }
+}
+
+template<std::endian Endian, details::fundamental T>
+constexpr bool read_from_bytes(T& value, std::span<const std::byte> raw) noexcept {
+    if (raw.size() < sizeof(T)) {
+        [[unlikely]] return false;
+    }
+    details::read_from_bytes<Endian>(value, raw);
+    return true;
+}
+
+template<std::endian Endian, details::fundamental T>
+constexpr bool write_to_bytes(const T& value, std::span<std::byte> raw) noexcept {
+    if (raw.size() < sizeof(T)) {
+        [[unlikely]] return false;
+    }
+    details::write_to_bytes<Endian>(value, raw);
+    return true;
 }
 
 namespace details {
@@ -173,14 +190,14 @@ public:
 
 } // namespace details
 
-template<typename ValueType, std::endian GlobalEndian = std::endian::native, std::size_t Packed = 1uz>
-class binary_view : private details::view_base<binary_view<ValueType, GlobalEndian, Packed>>
+template<typename ValueType, std::endian Endian = std::endian::native, std::size_t Packed = 1uz>
+class binary_view : private details::view_base<binary_view<ValueType, Endian, Packed>>
 {
     using base = details::view_base<binary_view>;
 public:
     using value_type = ValueType;
     using buffer_type = std::span<std::byte>;
-    static constexpr std::endian endian = GlobalEndian;
+    static constexpr std::endian endian = Endian;
     static constexpr std::size_t packed = Packed;
 
     constexpr binary_view() = default;
@@ -234,14 +251,14 @@ private:
     buffer_type raw;
 };
 
-template<typename ValueType, std::endian GlobalEndian = std::endian::native, std::size_t Packed = 1uz>
-class readonly_binary_view : private details::view_base<readonly_binary_view<ValueType, GlobalEndian, Packed>>
+template<typename ValueType, std::endian Endian = std::endian::native, std::size_t Packed = 1uz>
+class readonly_binary_view : private details::view_base<readonly_binary_view<ValueType, Endian, Packed>>
 {
     using base = details::view_base<readonly_binary_view>;
 public:
     using value_type = ValueType;
     using buffer_type = std::span<const std::byte>;
-    static constexpr std::endian endian = GlobalEndian;
+    static constexpr std::endian endian = Endian;
     static constexpr std::size_t packed = Packed;
 
     constexpr readonly_binary_view() = default;

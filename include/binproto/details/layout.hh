@@ -19,6 +19,13 @@ namespace bpt::details {
                              && (is_nonstatic_data_member(Mem) || is_base(Mem))
                              && requires (T& v) { v.[:Mem:]; };
 
+    consteval bool is_fundamental(std::meta::info type) noexcept {
+        return is_arithmetic_type(type) || is_enum_type(type);
+    }
+    
+    template<typename T>
+    concept fundamental = (is_fundamental(^^T));
+
     struct bit_field_info {
         std::size_t index = 0;
         std::size_t bit_offset = 0;
@@ -519,11 +526,54 @@ namespace bpt::details {
         store_group_value<Endian, group_length>(raw.data(), group_value);
     }
 
+    template<std::endian Endian, details::fundamental T>
+    constexpr void read_from_bytes(T& value, std::span<const std::byte> raw) noexcept {
+        static constexpr auto type = remove_cvref(^^T);
+        value_rep_type<T> buffer [[indeterminate]];
+        std::ranges::copy_n(raw.data(), buffer.size(), buffer.data());
+        if constexpr (Endian != std::endian::native) {
+            if constexpr (is_floating_point_type(type)) {
+                value = std::bit_cast<T>(std::byteswap(
+                    std::bit_cast<integer_rep_type<T>>(buffer)));
+            } else if constexpr (is_enum_type(type)) {
+                value = static_cast<T>(std::byteswap(
+                    std::bit_cast<std::underlying_type_t<T>>(buffer)));
+            } else {
+                value = std::byteswap(std::bit_cast<T>(buffer));
+            }
+        } else {
+            value = std::bit_cast<T>(buffer);
+        }
+    }
+
+    template<std::endian Endian, details::fundamental T>
+    constexpr void write_to_bytes(const T& value, std::span<std::byte> raw) noexcept {
+        static constexpr auto type = remove_cvref(^^T);
+        auto buffer = [&value] {
+            if constexpr (Endian != std::endian::native) {
+                if constexpr (is_floating_point_type(type)) {
+                    return std::bit_cast<value_rep_type<T>>(std::byteswap(
+                        std::bit_cast<integer_rep_type<T>>(value)));
+                } else if constexpr (is_enum_type(type)) {
+                    return std::bit_cast<value_rep_type<T>>(std::byteswap(
+                        std::to_underlying(value)));
+                } else {
+                    return std::bit_cast<value_rep_type<T>>(std::byteswap(value));
+                }
+            } else {
+                return std::bit_cast<value_rep_type<T>>(value);
+            }
+        }();
+        std::ranges::copy_n(buffer.data(), buffer.size(), raw.data());
+    }
+
     template<std::endian Endian, std::size_t Packed, typename T>
     constexpr void read(T& value, std::span<const std::byte> raw) noexcept {
         static constexpr auto type = remove_cvref(^^T);
         static constexpr auto layout = layout_of<T, Packed>;
-        if constexpr (is_class_type(type)) {
+        if constexpr (is_fundamental(type)) {
+            read_from_bytes<Endian>(value, raw.subspan(0, layout.total_size));
+        } else if constexpr (is_class_type(type)) {
             template for (constexpr auto info : layout.offsets) {
                 if constexpr (info.group_bit_width > 0) {
                     read_sub_bits_group<info, Endian, Packed>(
@@ -542,24 +592,7 @@ namespace bpt::details {
                 read<Endian, Packed>(value[index], raw.subspan(index * elem_size, elem_size));
             }
         } else {
-            static_assert(is_arithmetic_type(type) || is_floating_point_type(type) || is_enum_type(type),
-                          "only arithmetic, floating-point, enum, array, and class types are supported");
-            value_rep_type<T> buffer [[indeterminate]];
-            static_assert(layout.total_size == buffer.size(), "layout total size mismatch");
-            std::ranges::copy_n(raw.data(), layout.total_size, buffer.data());
-            if constexpr (Endian != std::endian::native) {
-                if constexpr (is_floating_point_type(type)) {
-                    value = std::bit_cast<T>(std::byteswap(
-                        std::bit_cast<integer_rep_type<T>>(buffer)));
-                } else if constexpr (is_enum_type(type)) {
-                    value = static_cast<T>(std::byteswap(
-                        std::bit_cast<std::underlying_type_t<T>>(buffer)));
-                } else {
-                    value = std::byteswap(std::bit_cast<T>(buffer));
-                }
-            } else {
-                value = std::bit_cast<T>(buffer);
-            }
+            static_assert(false, "only arithmetic, enum, array, and class types are supported");
         }
     }
 
@@ -567,7 +600,9 @@ namespace bpt::details {
     constexpr void write(const T& value, std::span<std::byte> raw) noexcept {
         static constexpr auto type = remove_cvref(^^T);
         static constexpr auto layout = layout_of<T, Packed>;
-        if constexpr (is_class_type(type)) {
+        if constexpr (is_fundamental(type)) {
+            write_to_bytes<Endian>(value, raw.subspan(0, layout.total_size));
+        } else if constexpr (is_class_type(type)) {
             template for (constexpr auto info : layout.offsets) {
                 if constexpr (info.group_bit_width > 0) {
                     write_sub_bits_group<info, Endian, Packed>(
@@ -586,24 +621,7 @@ namespace bpt::details {
                 write<Endian, Packed>(value[index], raw.subspan(index * elem_size, elem_size));
             }
         } else {
-            static_assert(is_arithmetic_type(type) || is_floating_point_type(type) || is_enum_type(type),
-                          "only arithmetic, floating-point, enum, array, and class types are supported");
-            auto buffer = [&value] {
-                if constexpr (Endian != std::endian::native) {
-                    if constexpr (is_floating_point_type(type)) {
-                        return std::bit_cast<value_rep_type<T>>(std::byteswap(
-                            std::bit_cast<integer_rep_type<T>>(value)));
-                    } else if constexpr (is_enum_type(type)) {
-                        return std::bit_cast<value_rep_type<T>>(std::byteswap(
-                            std::to_underlying(value)));
-                    } else {
-                        return std::bit_cast<value_rep_type<T>>(std::byteswap(value));
-                    }
-                } else {
-                    return std::bit_cast<value_rep_type<T>>(value);
-                }
-            }();
-            std::ranges::copy_n(buffer.data(), layout.total_size, raw.data());
+            static_assert(false, "only arithmetic, enum, array, and class types are supported");
         }
     }
 
