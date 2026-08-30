@@ -171,7 +171,7 @@ public:
 
     [[nodiscard]] constexpr bool read(std::span<value_type> values) const noexcept {
         const auto raw = ((const view_type*)this)->buffer();
-        if (raw.size() < wire_size() * values.size()) {
+        if (raw.size() < std::saturating_mul(wire_size(), values.size())) {
             [[unlikely]] return false;
         }
         details::read_batch<endian, packed>(values, raw);
@@ -236,7 +236,7 @@ public:
     }
 
     [[nodiscard]] constexpr bool write(std::span<const value_type> values) const noexcept {
-        if (raw.size() < wire_size() * values.size()) {
+        if (raw.size() < std::saturating_mul(wire_size(), values.size())) {
             [[unlikely]] return false;
         }
         details::write_batch<endian, packed>(values, raw);
