@@ -202,6 +202,10 @@ namespace bpt::details {
         } else if (is_bounded_array_type(type)) {
             return generate_array_layout(type, required_align);
         } else {
+            if (!is_fundamental(type)) {
+                throw std::meta::exception(
+                    "type must be a class, bounded array, or fundamental type", type);
+            }
             return packed_layout{ .offsets = {}, .total_size = size_of(type) };
         }
     }
@@ -688,5 +692,17 @@ namespace bpt::details {
             static_assert(false, "only arithmetic, enum, array, and class types are supported");
         }
     }
+
+    template<typename T, std::size_t Packed>
+    concept supported_type = [] consteval {
+        static_assert(Packed > 0 && std::popcount(Packed) == 1, "Packed must be a power of two");
+        static_assert(!is_const(^^T) && !is_volatile(^^T), "T must not be const or volatile");
+        try {
+            (void) generate_member_offset_table(^^T, Packed);
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }();
 
 } // namespace bpt::details

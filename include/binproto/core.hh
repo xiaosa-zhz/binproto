@@ -219,6 +219,7 @@ public:
 } // namespace details
 
 template<typename ValueType, std::endian Endian = std::endian::native, std::size_t Packed = 1uz>
+    requires details::supported_type<ValueType, Packed>
 class binary_view : private details::view_base<binary_view<ValueType, Endian, Packed>>
 {
     using base = details::view_base<binary_view>;
@@ -287,6 +288,7 @@ private:
 };
 
 template<typename ValueType, std::endian Endian = std::endian::native, std::size_t Packed = 1uz>
+    requires details::supported_type<ValueType, Packed>
 class readonly_binary_view : private details::view_base<readonly_binary_view<ValueType, Endian, Packed>>
 {
     using base = details::view_base<readonly_binary_view>;
