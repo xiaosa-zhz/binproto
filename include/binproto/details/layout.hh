@@ -88,6 +88,10 @@ namespace bpt::details {
     }
 
     consteval auto generate_class_layout(std::meta::info type, std::size_t required_align) {
+        if (has_inaccessible_subobjects(type, unprivileged())) {
+            throw std::meta::exception(
+                "type has inaccessible subobjects, cannot generate layout", type);
+        }
         const auto layout_members = members_for_layout(type);
         packed_layout result;
         std::vector<member_offset_info> offsets;
