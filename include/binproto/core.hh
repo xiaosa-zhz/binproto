@@ -2,6 +2,7 @@
 
 #include "details/layout.hh"
 #include <numeric>
+#include <iterator>
 
 namespace bpt {
 
@@ -283,6 +284,13 @@ public:
     [[nodiscard]]
     constexpr buffer_type buffer() const noexcept { return raw; }
 
+    [[nodiscard]]
+    constexpr bool operator==(const binary_view& other) const noexcept {
+        const auto lhs_buf = this->buffer();
+        const auto rhs_buf = other.buffer();
+        return lhs_buf.data() == rhs_buf.data() && lhs_buf.size() == rhs_buf.size();
+    }
+
 private:
     buffer_type raw;
 };
@@ -322,8 +330,157 @@ public:
     [[nodiscard]]
     constexpr buffer_type buffer() const noexcept { return raw; }
 
+    [[nodiscard]]
+    constexpr bool operator==(const readonly_binary_view& other) const noexcept {
+        const auto lhs_buf = this->buffer();
+        const auto rhs_buf = other.buffer();
+        return lhs_buf.data() == rhs_buf.data() && lhs_buf.size() == rhs_buf.size();
+    }
+
 private:
     buffer_type raw;
 };
+
+template<typename ValueType, std::endian Endian = std::endian::native, std::size_t Packed = 1uz>
+    requires details::supported_type<ValueType, Packed>
+class binary_input_iterator
+{
+public:
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = ValueType;
+    using reference = value_type;
+    using difference_type = std::ptrdiff_t;
+
+    using binary_view_type = readonly_binary_view<value_type, Endian, Packed>;
+
+    constexpr binary_input_iterator() = default;
+    constexpr binary_input_iterator(const binary_input_iterator&) = default;
+    constexpr binary_input_iterator& operator=(const binary_input_iterator&) = default;
+
+    constexpr binary_input_iterator(binary_view_type view) noexcept : view(view) {}
+
+    [[nodiscard]] constexpr reference operator*() const noexcept {
+        value_type value;
+        bool res = view.read(value);
+        (void) res; // TODO: assert
+        return value;
+    }
+
+    constexpr binary_input_iterator& operator++() noexcept {
+        view = view.template remained_view<value_type>();
+        return *this;
+    }
+
+    constexpr binary_input_iterator operator++(int) noexcept {
+        auto tmp = *this;
+        ++(*this);
+        return tmp;
+    }
+
+    [[nodiscard]]
+    constexpr binary_input_iterator operator+(difference_type n) const noexcept {
+        auto tmp = *this;
+        tmp.view = tmp.view.template remained_view<value_type>(n);
+        return tmp;
+    }
+
+    constexpr binary_input_iterator& operator+=(difference_type n) noexcept {
+        view = view.template remained_view<value_type>(n);
+        return *this;
+    }
+
+    [[nodiscard]]
+    constexpr bool operator==(const binary_input_iterator& other) const noexcept {
+        return this->view == other.view;
+    }
+
+    [[nodiscard]]
+    constexpr bool operator==(std::default_sentinel_t) const noexcept {
+        return this->view.consumed().empty();
+    }
+
+private:
+    binary_view_type view;
+};
+
+template<typename ValueType, std::endian Endian = std::endian::native, std::size_t Packed = 1uz>
+    requires details::supported_type<ValueType, Packed>
+class binary_output_iterator
+{
+public:
+    using iterator_category = std::output_iterator_tag;
+    using value_type = ValueType;
+    using reference = void;
+    using difference_type = std::ptrdiff_t;
+
+    using binary_view_type = binary_view<value_type, Endian, Packed>;
+
+    constexpr binary_output_iterator() = default;
+    constexpr binary_output_iterator(const binary_output_iterator&) = default;
+    constexpr binary_output_iterator& operator=(const binary_output_iterator&) = default;
+
+    constexpr binary_output_iterator(binary_view_type view) noexcept : view(view) {}
+
+    constexpr binary_output_iterator& operator=(const value_type& value) noexcept {
+        bool res = view.write(value);
+        (void) res; // TODO: assert
+        return *this;
+    }
+
+    constexpr binary_output_iterator& operator*() noexcept { return *this; }
+
+    constexpr binary_output_iterator& operator++() noexcept {
+        view = view.template remained_view<value_type>();
+        return *this;
+    }
+
+    constexpr binary_output_iterator operator++(int) noexcept {
+        auto tmp = *this;
+        ++(*this);
+        return tmp;
+    }
+
+    [[nodiscard]]
+    constexpr binary_output_iterator operator+(difference_type n) const noexcept {
+        auto tmp = *this;
+        tmp.view = tmp.view.template remained_view<value_type>(n);
+        return tmp;
+    }
+
+    constexpr binary_output_iterator& operator+=(difference_type n) noexcept {
+        view = view.template remained_view<value_type>(n);
+        return *this;
+    }
+
+    [[nodiscard]]
+    constexpr bool operator==(const binary_output_iterator& other) const noexcept {
+        return this->view == other.view;
+    }
+
+    [[nodiscard]]
+    constexpr bool operator==(std::default_sentinel_t) const noexcept {
+        return this->view.consumed().empty();
+    }
+
+private:
+    binary_view_type view;
+};
+
+template<typename ValueType, std::endian Endian = std::endian::native, std::size_t Packed = 1uz>
+    requires details::supported_type<ValueType, Packed>
+constexpr auto read_n(std::span<const std::byte> raw, std::size_t n) noexcept
+    -> std::ranges::subrange<binary_input_iterator<ValueType, Endian, Packed>, std::default_sentinel_t>
+{
+    using view_type = readonly_binary_view<ValueType, Endian, Packed>;
+    const auto end = std::saturating_mul(view_type::wire_size(), n);
+    if (raw.size() < end) {
+        [[unlikely]] return {};
+    }
+    view_type view(raw.subspan(0, end));
+    return {
+        binary_input_iterator<ValueType, Endian, Packed>(view),
+        std::default_sentinel
+    };
+}
 
 } // namespace bpt
