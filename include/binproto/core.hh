@@ -361,9 +361,10 @@ public:
 
     [[nodiscard]] constexpr reference operator*() const noexcept {
         value_type value;
-        bool res = view.read(value);
-        (void) res; // TODO: assert
-        return value;
+        if (view.read(value)) {
+            return value;
+        }
+        std::unreachable();
     }
 
     constexpr binary_input_iterator& operator++() noexcept {
@@ -422,9 +423,10 @@ public:
     constexpr binary_output_iterator(binary_view_type view) noexcept : view(view) {}
 
     constexpr binary_output_iterator& operator=(const value_type& value) noexcept {
-        bool res = view.write(value);
-        (void) res; // TODO: assert
-        return *this;
+        if (view.write(value)) {
+            return *this;
+        }
+        std::unreachable();
     }
 
     constexpr binary_output_iterator& operator*() noexcept { return *this; }
