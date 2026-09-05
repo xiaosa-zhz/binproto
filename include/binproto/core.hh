@@ -3,6 +3,7 @@
 #include "details/layout.hh"
 #include <numeric>
 #include <iterator>
+#include <span>
 
 namespace bpt {
 
@@ -470,19 +471,17 @@ private:
 
 template<typename ValueType, std::endian Endian = std::endian::native, std::size_t Packed = 1uz>
     requires details::supported_type<ValueType, Packed>
-constexpr auto read_n(std::span<const std::byte> raw, std::size_t n) noexcept
-    -> std::ranges::subrange<binary_input_iterator<ValueType, Endian, Packed>, std::default_sentinel_t>
-{
-    using view_type = readonly_binary_view<ValueType, Endian, Packed>;
-    const auto end = std::saturating_mul(view_type::wire_size(), n);
-    if (raw.size() < end) {
-        [[unlikely]] return {};
-    }
-    view_type view(raw.subspan(0, end));
-    return {
-        binary_input_iterator<ValueType, Endian, Packed>(view),
+constexpr auto read(std::span<const std::byte> raw) noexcept {
+    return std::ranges::subrange{
+        binary_input_iterator<ValueType, Endian, Packed>(raw),
         std::default_sentinel
     };
+}
+
+template<typename ValueType, std::endian Endian = std::endian::native, std::size_t Packed = 1uz>
+    requires details::supported_type<ValueType, Packed>
+constexpr auto make_write_iterator(std::span<std::byte> raw) noexcept {
+    return binary_output_iterator<ValueType, Endian, Packed>(raw);
 }
 
 } // namespace bpt

@@ -607,7 +607,7 @@ int run_scalar_tests() {
         if (!ok) return 1;
     }
 
-    // --- read_n: fixed-count element range ---
+    // --- read: fixed-count element range ---
     {
         using InChunk = bpt::binary_input_iterator<Chunk, std::endian::little, 1>;
         static_assert(std::input_iterator<InChunk>);
@@ -617,7 +617,7 @@ int run_scalar_tests() {
             {0x44, 0x33, 0x22, 0x11, 0x66, 0x55,   // Chunk{0x11223344, 0x5566}
              0xDD, 0xCC, 0xBB, 0xAA, 0x88, 0x77}); // Chunk{0xAABBCCDD, 0x7788}
 
-        auto r = bpt::read_n<Chunk>(raw, 2);
+        auto r = bpt::read<Chunk>(raw);
         static_assert(std::ranges::forward_range<decltype(r)>);
 
         bool ok = r.begin() != r.end();
@@ -637,34 +637,25 @@ int run_scalar_tests() {
         i2 += 2;
         ok = ok && i2 == r.end();
 
-        // n == 0 -> empty; too-small buffer -> empty; saturating count -> empty
-        auto r0 = bpt::read_n<Chunk>(raw, 0uz);
-        ok = ok && r0.begin() == r0.end();
-        auto rsmall = bpt::read_n<Chunk>(std::span<const std::byte>(raw).first(5), 1);
-        ok = ok && rsmall.begin() == rsmall.end();
-        constexpr std::size_t huge = std::size_t{1} << 62;
-        auto rhuge = bpt::read_n<Chunk>(raw, huge);
-        ok = ok && rhuge.begin() == rhuge.end();
-
         // big endian decodes byte-swapped wire values
         const auto raw_be = testutil::to_bytes<12>(
             {0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
              0xAA, 0xBB, 0xCC, 0xDD, 0x77, 0x88});
-        auto rb = bpt::read_n<Chunk, std::endian::big, 1>(raw_be, 2);
+        auto rb = bpt::read<Chunk, std::endian::big, 1>(raw_be);
         const Chunk bc0 = *rb.begin();
         const Chunk bc1 = *(rb.begin() + 1);
         ok = ok && bc0.id == 0x11223344 && bc0.seq == 0x5566
              && bc1.id == 0xAABBCCDD && bc1.seq == 0x7788;
 
-        // bit-field element type round-trips through read_n as well
+        // bit-field element type round-trips through read as well
         const auto bp = testutil::to_bytes<4>({0xCD, 0x00, 0x0F, 0x16});
-        auto rbp = bpt::read_n<BitPair>(bp, 4);
+        auto rbp = bpt::read<BitPair>(bp);
         const BitPair p0 = *rbp.begin();
         const BitPair p3 = *(rbp.begin() + 3);
         ok = ok && p0.a == 5 && p0.b == 25 && p3.a == 6 && p3.b == 2;
 
         std::println("[{:<15} {:<13}] count range + sentinel + endian + bits | {}",
-                     "API", "read_n", ok ? "OK" : "FAIL");
+                     "API", "read", ok ? "OK" : "FAIL");
         if (!ok) return 1;
     }
 
