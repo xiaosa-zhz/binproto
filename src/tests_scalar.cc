@@ -637,6 +637,24 @@ int run_scalar_tests() {
         i2 += 2;
         ok = ok && i2 == r.end();
 
+        // empty raw -> empty range; trailing partial element is not dereferenced
+        auto re = bpt::read<Chunk>(std::span<const std::byte>{});
+        ok = ok && re.begin() == re.end();
+
+        const auto raw14 = testutil::to_bytes<14>(
+            {0x44, 0x33, 0x22, 0x11, 0x66, 0x55,
+             0xDD, 0xCC, 0xBB, 0xAA, 0x88, 0x77,
+             0x99, 0xAA});                      // trailing 2 bytes: ignored
+        auto r14 = bpt::read<Chunk>(raw14);
+        ok = ok && std::ranges::distance(r14) == 2;
+        auto i14 = r14.begin();
+        i14 += 2;
+        ok = ok && i14 == r14.end();            // sentinel stops at the partial tail
+
+        // factory range uses the same iterator, with the same identity
+        ok = ok && r.begin() == InChunk(
+            bpt::readonly_binary_view<Chunk, std::endian::little, 1>(raw));
+
         // big endian decodes byte-swapped wire values
         const auto raw_be = testutil::to_bytes<12>(
             {0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
@@ -774,6 +792,60 @@ int run_scalar_tests() {
 
         std::println("[{:<15} {:<13}] write/++/+/copy/BE/bitfield | {}",
                      "API", "out-iter", ok ? "OK" : "FAIL");
+        if (!ok) return 1;
+    }
+
+    // --- make_write_iterator factory ---
+    {
+        using OutChunk = bpt::binary_output_iterator<Chunk, std::endian::little, 1>;
+
+        // exact-fit sequential write through the factory
+        std::array<std::byte, 12> buf{};
+        auto wit = bpt::make_write_iterator<Chunk>(buf);
+        static_assert(std::same_as<decltype(wit), OutChunk>); // factory yields the iterator type
+        bool ok = wit != std::default_sentinel;              // 12 bytes available
+        *wit = Chunk{0x11223344, 0x5566};
+        ++wit;
+        *wit = Chunk{0xAABBCCDD, 0x7788};
+        ++wit;
+        ok = ok && wit == std::default_sentinel;             // buffer fully consumed
+        ok = ok && testutil::expect_bytes(std::span<const std::byte>(buf),
+                     testutil::to_bytes<12>(
+                         {0x44, 0x33, 0x22, 0x11, 0x66, 0x55,
+                          0xDD, 0xCC, 0xBB, 0xAA, 0x88, 0x77}),
+                     "API", "out-fact");
+
+        // factory-built and directly-built iterators over the same view are equal
+        bpt::binary_view<Chunk, std::endian::little, 1> view(buf);
+        ok = ok && wit == OutChunk(view.remained_view<Chunk>(2));
+
+        // empty raw span -> already at the end
+        std::array<std::byte, 0> z{};
+        auto wz = bpt::make_write_iterator<Chunk>(z);
+        ok = ok && wz == std::default_sentinel;
+
+        // big endian
+        std::array<std::byte, 6> buf_be{};
+        auto wit_be = bpt::make_write_iterator<Chunk, std::endian::big, 1>(buf_be);
+        *wit_be = Chunk{0x11223344, 0x5566};
+        ++wit_be;
+        ok = ok && wit_be == std::default_sentinel
+             && testutil::expect_bytes(std::span<const std::byte>(buf_be),
+                       testutil::to_bytes<6>({0x11, 0x22, 0x33, 0x44, 0x55, 0x66}),
+                       "API", "out-fbe");
+
+        // bit-field element type
+        std::array<std::byte, 2> bpbuf{};
+        auto bpit = bpt::make_write_iterator<BitPair>(bpbuf);
+        *bpit = BitPair{5, 25};
+        ++bpit;
+        *bpit = BitPair{0, 0};
+        ok = ok && testutil::expect_bytes(std::span<const std::byte>(bpbuf),
+                     testutil::to_bytes<2>({0xCD, 0x00}),
+                     "API", "out-fbit");
+
+        std::println("[{:<15} {:<13}] factory: same type + LE/BE/bits | {}",
+                     "API", "out-fact", ok ? "OK" : "FAIL");
         if (!ok) return 1;
     }
 
