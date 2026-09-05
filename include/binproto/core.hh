@@ -472,10 +472,10 @@ private:
 template<typename ValueType, std::endian Endian = std::endian::native, std::size_t Packed = 1uz>
     requires details::supported_type<ValueType, Packed>
 constexpr auto read(std::span<const std::byte> raw) noexcept {
-    return std::ranges::subrange{
+    return std::ranges::subrange(
         binary_input_iterator<ValueType, Endian, Packed>(raw),
         std::default_sentinel
-    };
+    );
 }
 
 template<typename ValueType, std::endian Endian = std::endian::native, std::size_t Packed = 1uz>
