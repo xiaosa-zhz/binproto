@@ -120,6 +120,10 @@ class view_base
     template<typename T>
     using rebind_type_view = traits::template rebind<T>;
 
+    constexpr auto raw_buffer() const noexcept {
+        return ((const view_type*)this)->buffer();
+    }
+
 public:
     [[nodiscard]] static consteval std::size_t wire_size() noexcept {
         return details::layout_of<value_type, packed>.total_size;
@@ -138,7 +142,7 @@ public:
             = details::get_overall_offset_of_member(^^value_type, packed, Mem);
         static constexpr auto member_size
             = details::layout_of<member_type<Mem>, packed>.total_size;
-        const auto raw = ((const view_type*)this)->buffer();
+        const auto raw = raw_buffer();
         if (raw.size() < offset + member_size) {
             [[unlikely]] return {};
         }
@@ -146,7 +150,7 @@ public:
     }
 
     [[nodiscard]] constexpr auto consumed() const noexcept {
-        auto raw = ((const view_type*)this)->buffer();
+        const auto raw = raw_buffer();
         if (raw.size() < wire_size()) {
             [[unlikely]] return decltype(raw){};
         }
@@ -154,15 +158,20 @@ public:
     }
 
     [[nodiscard]] constexpr auto remained(std::size_t consume = 1) const noexcept {
-        auto raw = ((const view_type*)this)->buffer();
+        const auto raw = raw_buffer();
         if (raw.size() < std::saturating_mul(wire_size(), consume)) {
             [[unlikely]] return decltype(raw){};
         }
         return raw.subspan(wire_size() * consume);
     }
 
+    [[nodiscard]] constexpr auto exhaustively_remained() const noexcept {
+        const auto raw = raw_buffer();
+        return raw.subspan(raw.size() - raw.size() % wire_size());
+    }
+
     [[nodiscard]] constexpr view_type consumed_view() const noexcept {
-        auto raw = ((const view_type*)this)->buffer();
+        const auto raw = raw_buffer();
         if (raw.size() < wire_size()) {
             [[unlikely]] return {};
         }
@@ -173,7 +182,7 @@ public:
     [[nodiscard]] constexpr auto remained_view(std::size_t consume = 1) const noexcept
         -> rebind_type_view<Succeeded>
     {
-        auto raw = ((const view_type*)this)->buffer();
+        const auto raw = raw_buffer();
         if (raw.size() < std::saturating_mul(wire_size(), consume)) {
             [[unlikely]] return {};
         }
@@ -181,7 +190,7 @@ public:
     }
 
     [[nodiscard]] constexpr bool read(value_type& value) const noexcept {
-        const auto raw = ((const view_type*)this)->buffer();
+        const auto raw = raw_buffer();
         if (raw.size() < wire_size()) {
             [[unlikely]] return false;
         }
@@ -190,7 +199,7 @@ public:
     }
 
     [[nodiscard]] constexpr bool read(std::span<value_type> values) const noexcept {
-        const auto raw = ((const view_type*)this)->buffer();
+        const auto raw = raw_buffer();
         if (raw.size() < std::saturating_mul(wire_size(), values.size())) {
             [[unlikely]] return false;
         }
@@ -206,7 +215,7 @@ public:
                 = details::get_overall_offset_of_member(^^value_type, packed, Mem);
             static constexpr std::size_t group_size = details::align_bits_byte(
                 details::bit_field_group_desc_of<Mem, packed>.group_bit_width);
-            const auto raw = ((const view_type*)this)->buffer();
+            const auto raw = raw_buffer();
             if (raw.size() < offset + group_size) {
                 [[unlikely]] return false;
             }
@@ -244,6 +253,7 @@ public:
     using base::subview;
     using base::consumed;
     using base::remained;
+    using base::exhaustively_remained;
     using base::consumed_view;
     using base::remained_view;
     using base::read;
@@ -324,6 +334,7 @@ public:
     using base::subview;
     using base::consumed;
     using base::remained;
+    using base::exhaustively_remained;
     using base::consumed_view;
     using base::remained_view;
     using base::read;
